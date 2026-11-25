@@ -3,14 +3,18 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use adw::prelude::*;
-use gtk::{gio, glib};
+use gtk::{gdk, gio, glib};
 
 use crate::api::BlueBubbles;
 use crate::icons::Icon;
+use crate::media as media_ui;
 use crate::model::{Conversation, Message, MessagePointer, TapbackKind};
 use crate::thread::{self, MessageRow, SendState};
 
-use super::{Mode, ReplyDraft, Workspace, background, boxed, send_background, timeline::Fetch};
+use super::{
+    Mode, ReplyDraft, Workspace, background, boxed, preview_background, send_background,
+    timeline::Fetch,
+};
 
 #[derive(Clone)]
 pub(super) enum SendPart {
@@ -112,19 +116,57 @@ impl Workspace {
         }
     }
 
-    pub(super) fn update_composer(&self) {
+    pub(super) fn composer_ready_guid(&self) -> Option<String> {
         let state = self.state.borrow();
-        let ready = (state.server.is_some() || self.mode == Mode::Patterns)
-            && state.active.is_some()
-            && !state.connecting;
+        if (state.server.is_some() || self.mode == Mode::Patterns) && !state.connecting {
+            state.active.as_ref().map(|active| active.guid.clone())
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn update_composer(&self) {
+        let ready = self.composer_ready_guid().is_some();
+        let has_files = !self.state.borrow().files.is_empty();
         self.editor_placeholder
             .set_visible(self.editor_text().is_empty());
         self.editor.set_editable(ready);
         self.attach.set_sensitive(ready);
         self.pending.set_sensitive(ready);
-        self.send.set_sensitive(
-            ready && (!self.editor_text().trim().is_empty() || !state.files.is_empty()),
-        );
+        self.send
+            .set_sensitive(ready && (!self.editor_text().trim().is_empty() || has_files));
+    }
+
+    pub(super) fn paste_clipboard_media(self: &Rc<Self>, fallback_text: bool) -> bool {
+        let Some(guid) = self.composer_ready_guid() else {
+            return false;
+        };
+        let clipboard = self.editor.clipboard();
+        if !media_ui::clipboard_has_media(&clipboard.formats()) {
+            return false;
+        }
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let result = media_ui::read_clipboard_media(&clipboard).await;
+            let Some(app) = weak.upgrade() else {
+                return;
+            };
+            if app.composer_ready_guid().as_deref() != Some(guid.as_str()) {
+                return;
+            }
+            match result {
+                Ok(paths) if !paths.is_empty() => {
+                    app.add_files(&guid, paths.into_iter());
+                    app.editor.grab_focus();
+                }
+                Ok(_) if fallback_text => {
+                    app.editor.buffer().paste_clipboard(&clipboard, None, true);
+                }
+                Ok(_) => {}
+                Err(error) => app.notify_error(&error),
+            }
+        });
+        true
     }
 
     pub(super) fn pick_files(self: &Rc<Self>) {
@@ -159,7 +201,7 @@ impl Workspace {
             return;
         }
         for path in files {
-            if !state.files.contains(&path) {
+            if path.is_file() && !state.files.contains(&path) {
                 state.files.push(path);
             }
         }
@@ -207,6 +249,41 @@ impl Workspace {
         }
         for (index, path) in files.iter().enumerate() {
             let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            row.add_css_class("pending-attachment");
+            let kind = media_ui::Kind::of_path(path);
+            if kind == media_ui::Kind::Image {
+                let preview = gtk::Stack::new();
+                preview.add_css_class("pending-thumb");
+                preview.set_size_request(28, 28);
+                preview.set_valign(gtk::Align::Center);
+                preview.set_overflow(gtk::Overflow::Hidden);
+                preview.add_named(&kind.icon().widget(), Some("icon"));
+                let picture = gtk::Picture::builder()
+                    .can_shrink(true)
+                    .content_fit(gtk::ContentFit::Cover)
+                    .width_request(28)
+                    .height_request(28)
+                    .build();
+                preview.add_named(&picture, Some("thumb"));
+                preview.set_visible_child_name("icon");
+                row.append(&preview);
+                let path = path.clone();
+                let weak_preview = preview.downgrade();
+                let weak_picture = picture.downgrade();
+                preview_background(
+                    move || media_ui::image_texture(&path, Some(64)).map_err(|e| e.to_string()),
+                    move |result: Result<gdk::Texture, String>| {
+                        if let (Ok(texture), Some(preview), Some(picture)) =
+                            (result, weak_preview.upgrade(), weak_picture.upgrade())
+                        {
+                            picture.set_paintable(Some(&texture));
+                            preview.set_visible_child_name("thumb");
+                        }
+                    },
+                );
+            } else {
+                row.append(&kind.icon().widget());
+            }
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             let label = gtk::Label::builder()
                 .label(name.as_ref())

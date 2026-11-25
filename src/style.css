@@ -290,6 +290,21 @@
     background-color: @bb_canvas;
 }
 
+.bb-window .pending-attachment {
+    padding: 4px 6px 4px 8px;
+    border-radius: 10px;
+    background-color: @bb_surface;
+    border: 1px solid @bb_border;
+}
+
+.bb-window .pending-attachment .pending-thumb {
+    border-radius: 6px;
+}
+
+.bb-window .pending-attachment .bb-icon {
+    color: @bb_muted;
+}
+
 .bb-window .compose-surface {
     border-radius: 14px;
     padding: 5px 9px;

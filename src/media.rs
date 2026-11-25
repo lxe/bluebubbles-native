@@ -1,6 +1,9 @@
 use std::cell::{Cell, RefCell};
-use std::path::Path;
+use std::fs::DirBuilder;
+use std::os::unix::fs::DirBuilderExt;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::{Duration, SystemTime};
 
 use adw::prelude::*;
 use gtk::gdk_pixbuf::Pixbuf;
@@ -123,12 +126,20 @@ fn extra_orientation(path: &Path) -> Option<Orientation> {
 
 impl Kind {
     pub fn of(file: &Attachment) -> Self {
-        let extension = Path::new(&file.name)
+        Self::classify(Path::new(&file.name), file.mime_type.as_deref())
+    }
+
+    pub fn of_path(path: &Path) -> Self {
+        Self::classify(path, None)
+    }
+
+    fn classify(path: &Path, mime: Option<&str>) -> Self {
+        let extension = path
             .extension()
             .and_then(|extension| extension.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let mime = file.mime_type.as_deref().unwrap_or("");
+        let mime = mime.unwrap_or("");
         if mime.starts_with("image/")
             || matches!(
                 extension.as_str(),
@@ -137,13 +148,16 @@ impl Kind {
         {
             Self::Image
         } else if mime.starts_with("video/")
-            || matches!(extension.as_str(), "mp4" | "mov" | "webm" | "m4v" | "mkv")
+            || matches!(
+                extension.as_str(),
+                "mp4" | "mov" | "webm" | "m4v" | "mkv" | "ogv" | "avi"
+            )
         {
             Self::Video
         } else if mime.starts_with("audio/")
             || matches!(
                 extension.as_str(),
-                "m4a" | "mp3" | "wav" | "aac" | "flac" | "caf" | "opus"
+                "m4a" | "mp3" | "wav" | "aac" | "flac" | "caf" | "opus" | "ogg"
             )
         {
             Self::Audio
@@ -152,7 +166,7 @@ impl Kind {
         }
     }
 
-    fn icon(self) -> Icon {
+    pub fn icon(self) -> Icon {
         match self {
             Self::Image => Icon::Image,
             Self::Video => Icon::Video,
@@ -426,6 +440,407 @@ pub fn copy_to_clipboard(
             .map_err(|_| "The file could not be copied.".to_string())?;
     }
     Ok(())
+}
+
+const MAX_PASTED_BYTES: usize = 256 * 1024 * 1024;
+const MAX_URI_LIST_BYTES: usize = 1024 * 1024;
+const PASTED_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
+
+const URI_LIST_MIMES: [&str; 2] = ["text/uri-list", "x-special/gnome-copied-files"];
+
+const PREFERRED_VIDEO_MIMES: [&str; 8] = [
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "video/x-matroska",
+    "video/ogg",
+    "video/x-m4v",
+    "video/mpeg",
+    "video/x-msvideo",
+];
+
+const PREFERRED_IMAGE_MIMES: [&str; 7] = [
+    "image/gif",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/avif",
+    "image/heic",
+    "image/heif",
+];
+
+const PREFERRED_AUDIO_MIMES: [&str; 9] = [
+    "audio/mp4",
+    "audio/x-m4a",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/flac",
+    "audio/aac",
+    "audio/opus",
+];
+
+pub fn clipboard_has_media(formats: &gdk::ContentFormats) -> bool {
+    if formats.contains_type(gdk::FileList::static_type())
+        || formats.contains_type(gdk::Texture::static_type())
+    {
+        return true;
+    }
+    formats.mime_types().iter().any(|mime| {
+        let normalized = normalize_mime(mime);
+        URI_LIST_MIMES.contains(&normalized.as_str())
+            || normalized.starts_with("video/")
+            || normalized.starts_with("image/")
+            || normalized.starts_with("audio/")
+    })
+}
+
+pub fn prune_pasted_cache() {
+    let dir = pasted_cache_dir();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let cutoff = SystemTime::now().checked_sub(PASTED_RETENTION);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let expired = entry
+            .metadata()
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .zip(cutoff)
+            .is_some_and(|(modified, cutoff)| modified < cutoff);
+        if expired {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+pub async fn read_clipboard_media(clipboard: &gdk::Clipboard) -> Result<Vec<PathBuf>, String> {
+    let formats = clipboard.formats();
+
+    // 1. Prefer local files (e.g. copied videos/images from a file manager or this app).
+    let files = read_clipboard_files(clipboard, &formats).await;
+    if !files.is_empty() {
+        return Ok(files);
+    }
+
+    // 2. Read raw video/image/audio streams directly to preserve original format & GIF animation.
+    let candidates = preferred_media_mimes(&formats);
+    let mut stream_error = None;
+    if !candidates.is_empty() {
+        let refs: Vec<&str> = candidates.iter().map(String::as_str).collect();
+        match clipboard.read_future(&refs, glib::Priority::DEFAULT).await {
+            Ok((stream, mime)) => match save_clipboard_stream(&stream, &mime).await {
+                Ok(Some(path)) => return Ok(vec![path]),
+                Ok(None) => {}
+                Err(error) => stream_error = Some(error),
+            },
+            Err(_) => {
+                stream_error = Some("Could not read media from the clipboard.".to_string());
+            }
+        }
+    }
+
+    // 3. Fallback to GDK texture decoding (in-process Texture copies, BMP/TIFF, etc.).
+    let has_image = formats.contains_type(gdk::Texture::static_type())
+        || formats
+            .mime_types()
+            .iter()
+            .any(|mime| normalize_mime(mime).starts_with("image/"));
+    if has_image {
+        match clipboard.read_texture_future().await {
+            Ok(Some(texture)) => {
+                let bytes = texture.save_to_png_bytes();
+                let path = save_pasted_bytes("image/png", bytes.as_ref()).await?;
+                return Ok(vec![path]);
+            }
+            Ok(None) => {}
+            Err(_) => {
+                return Err(stream_error.unwrap_or_else(|| {
+                    "Could not read the image from the clipboard.".to_string()
+                }));
+            }
+        }
+    }
+
+    if let Some(error) = stream_error {
+        return Err(error);
+    }
+    Ok(Vec::new())
+}
+
+async fn read_clipboard_files(
+    clipboard: &gdk::Clipboard,
+    formats: &gdk::ContentFormats,
+) -> Vec<PathBuf> {
+    if formats.contains_type(gdk::FileList::static_type())
+        && let Ok(value) = clipboard
+            .read_value_future(gdk::FileList::static_type(), glib::Priority::DEFAULT)
+            .await
+        && let Ok(list) = value.get::<gdk::FileList>()
+    {
+        let paths: Vec<PathBuf> = list
+            .files()
+            .into_iter()
+            .filter_map(|file| file.path())
+            .filter(|path| path.is_file())
+            .collect();
+        if !paths.is_empty() {
+            return paths;
+        }
+    }
+
+    let uri_mimes: Vec<String> = formats
+        .mime_types()
+        .iter()
+        .filter(|mime| URI_LIST_MIMES.contains(&normalize_mime(mime).as_str()))
+        .map(ToString::to_string)
+        .collect();
+    if uri_mimes.is_empty() {
+        return Vec::new();
+    }
+    let refs: Vec<&str> = uri_mimes.iter().map(String::as_str).collect();
+    let Ok((stream, _)) = clipboard.read_future(&refs, glib::Priority::DEFAULT).await else {
+        return Vec::new();
+    };
+    let mut raw = Vec::new();
+    while raw.len() < MAX_URI_LIST_BYTES {
+        let Ok(chunk) = stream
+            .read_bytes_future(16 * 1024, glib::Priority::DEFAULT)
+            .await
+        else {
+            break;
+        };
+        if chunk.is_empty() {
+            break;
+        }
+        let remaining = MAX_URI_LIST_BYTES - raw.len();
+        raw.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+    }
+    let _ = stream.close_future(glib::Priority::DEFAULT).await;
+    String::from_utf8(raw)
+        .map(|text| parse_uri_list(&text))
+        .unwrap_or_default()
+}
+
+fn preferred_media_mimes(formats: &gdk::ContentFormats) -> Vec<String> {
+    let offered: Vec<(String, String)> = formats
+        .mime_types()
+        .iter()
+        .map(|mime| (normalize_mime(mime), mime.to_string()))
+        .collect();
+    let mut ranked = Vec::new();
+    let push_if_offered = |ranked: &mut Vec<String>, target: &str| {
+        if let Some((_, original)) = offered.iter().find(|(norm, _)| norm == target)
+            && !ranked.contains(original)
+        {
+            ranked.push(original.clone());
+        }
+    };
+
+    for mime in PREFERRED_VIDEO_MIMES {
+        push_if_offered(&mut ranked, mime);
+    }
+    for (norm, original) in &offered {
+        if norm.starts_with("video/") && !ranked.contains(original) {
+            ranked.push(original.clone());
+        }
+    }
+    for mime in PREFERRED_IMAGE_MIMES {
+        push_if_offered(&mut ranked, mime);
+    }
+    for mime in PREFERRED_AUDIO_MIMES {
+        push_if_offered(&mut ranked, mime);
+    }
+    for (norm, original) in &offered {
+        if norm.starts_with("audio/") && !ranked.contains(original) {
+            ranked.push(original.clone());
+        }
+    }
+    ranked
+}
+
+fn normalize_mime(mime: &str) -> String {
+    mime.split(';')
+        .next()
+        .unwrap_or(mime)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn parse_uri_list(text: &str) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || matches!(trimmed, "copy" | "cut")
+            || !trimmed.starts_with("file://")
+        {
+            continue;
+        }
+        if let Some(path) = gio::File::for_uri(trimmed).path()
+            && path.is_file()
+            && !paths.contains(&path)
+        {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
+fn pasted_cache_dir() -> PathBuf {
+    glib::user_cache_dir()
+        .join("bluebubbles-native")
+        .join("pasted")
+}
+
+fn ensure_pasted_dir() -> Result<PathBuf, String> {
+    let dir = pasted_cache_dir();
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|_| "Could not prepare temporary folder for pasted media.".to_string())?;
+    Ok(dir)
+}
+
+fn pasted_filename(mime: &str, id: &str) -> String {
+    let normalized = normalize_mime(mime);
+    let (prefix, ext) = match normalized.as_str() {
+        "video/mp4" => ("video", "mp4"),
+        "video/quicktime" => ("video", "mov"),
+        "video/webm" => ("video", "webm"),
+        "video/x-matroska" => ("video", "mkv"),
+        "video/ogg" => ("video", "ogv"),
+        "video/x-m4v" => ("video", "m4v"),
+        "video/mpeg" => ("video", "mpeg"),
+        "video/x-msvideo" => ("video", "avi"),
+        "image/png" => ("image", "png"),
+        "image/jpeg" | "image/jpg" => ("image", "jpg"),
+        "image/gif" => ("image", "gif"),
+        "image/webp" => ("image", "webp"),
+        "image/avif" => ("image", "avif"),
+        "image/heic" => ("image", "heic"),
+        "image/heif" => ("image", "heif"),
+        "audio/mp4" | "audio/x-m4a" => ("audio", "m4a"),
+        "audio/mpeg" => ("audio", "mp3"),
+        "audio/ogg" => ("audio", "ogg"),
+        "audio/wav" | "audio/x-wav" => ("audio", "wav"),
+        "audio/flac" => ("audio", "flac"),
+        "audio/aac" => ("audio", "aac"),
+        "audio/opus" => ("audio", "opus"),
+        other => {
+            let prefix = if other.starts_with("video/") {
+                "video"
+            } else if other.starts_with("image/") {
+                "image"
+            } else if other.starts_with("audio/") {
+                "audio"
+            } else {
+                "media"
+            };
+            let subtype = other
+                .split_once('/')
+                .map(|(_, sub)| sub.strip_prefix("x-").unwrap_or(sub))
+                .filter(|ext| {
+                    !ext.is_empty()
+                        && ext.len() < 10
+                        && ext.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                })
+                .unwrap_or("bin");
+            return format!("pasted-{prefix}-{id}.{subtype}");
+        }
+    };
+    format!("pasted-{prefix}-{id}.{ext}")
+}
+
+fn next_pasted_path(mime: &str) -> Result<PathBuf, String> {
+    let dir = ensure_pasted_dir()?;
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    Ok(dir.join(pasted_filename(mime, &id[..8])))
+}
+
+async fn save_clipboard_stream(
+    stream: &gio::InputStream,
+    mime: &str,
+) -> Result<Option<PathBuf>, String> {
+    let dest = next_pasted_path(mime)?;
+    let output = gio::File::for_path(&dest)
+        .replace_future(
+            None,
+            false,
+            gio::FileCreateFlags::PRIVATE,
+            glib::Priority::DEFAULT,
+        )
+        .await
+        .map_err(|_| "Could not save pasted media.".to_string())?;
+    let mut total = 0usize;
+    let write_result: Result<(), String> = async {
+        loop {
+            let chunk = stream
+                .read_bytes_future(64 * 1024, glib::Priority::DEFAULT)
+                .await
+                .map_err(|_| "Could not read pasted media from the clipboard.".to_string())?;
+            if chunk.is_empty() {
+                break;
+            }
+            total = total.saturating_add(chunk.len());
+            if total > MAX_PASTED_BYTES {
+                return Err("The pasted media is too large to attach.".to_string());
+            }
+            output
+                .write_all_future(chunk.to_vec(), glib::Priority::DEFAULT)
+                .await
+                .map_err(|_| "Could not write pasted media.".to_string())?;
+        }
+        output
+            .close_future(glib::Priority::DEFAULT)
+            .await
+            .map_err(|_| "Could not finish saving pasted media.".to_string())?;
+        Ok(())
+    }
+    .await;
+    let _ = stream.close_future(glib::Priority::DEFAULT).await;
+    if let Err(error) = write_result {
+        let _ = std::fs::remove_file(&dest);
+        return Err(error);
+    }
+    if total == 0 {
+        let _ = std::fs::remove_file(&dest);
+        return Ok(None);
+    }
+    Ok(Some(dest))
+}
+
+async fn save_pasted_bytes(mime: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    if bytes.is_empty() {
+        return Err("The clipboard image was empty.".to_string());
+    }
+    let dest = next_pasted_path(mime)?;
+    let output = gio::File::for_path(&dest)
+        .replace_future(
+            None,
+            false,
+            gio::FileCreateFlags::PRIVATE,
+            glib::Priority::DEFAULT,
+        )
+        .await
+        .map_err(|_| "Could not save the pasted image.".to_string())?;
+    if output
+        .write_all_future(bytes.to_vec(), glib::Priority::DEFAULT)
+        .await
+        .is_err()
+        || output.close_future(glib::Priority::DEFAULT).await.is_err()
+    {
+        let _ = std::fs::remove_file(&dest);
+        return Err("Could not save the pasted image.".to_string());
+    }
+    Ok(dest)
 }
 
 pub fn link_row(
@@ -757,5 +1172,94 @@ mod tests {
         encoder
             .write_image(pixels, width, height, ExtendedColorType::Rgb8)
             .unwrap();
+    }
+
+    #[test]
+    fn clipboard_media_detection_and_mime_ranking() {
+        let plain = gdk::ContentFormats::new(&["text/plain", "text/html"]);
+        assert!(!clipboard_has_media(&plain));
+        assert!(preferred_media_mimes(&plain).is_empty());
+
+        let screenshot = gdk::ContentFormats::new(&["text/plain", "image/jpeg", "image/png"]);
+        assert!(clipboard_has_media(&screenshot));
+        assert_eq!(
+            preferred_media_mimes(&screenshot),
+            vec!["image/png".to_string(), "image/jpeg".to_string()]
+        );
+
+        let gif_and_png = gdk::ContentFormats::new(&["image/png", "image/gif"]);
+        assert_eq!(
+            preferred_media_mimes(&gif_and_png),
+            vec!["image/gif".to_string(), "image/png".to_string()]
+        );
+
+        let video_and_poster =
+            gdk::ContentFormats::new(&["image/png", "video/mp4", "video/webm", "text/plain"]);
+        assert!(clipboard_has_media(&video_and_poster));
+        assert_eq!(
+            preferred_media_mimes(&video_and_poster),
+            vec![
+                "video/mp4".to_string(),
+                "video/webm".to_string(),
+                "image/png".to_string()
+            ]
+        );
+
+        let files = gdk::ContentFormats::for_type(gdk::FileList::static_type());
+        assert!(clipboard_has_media(&files));
+
+        let texture = gdk::ContentFormats::for_type(gdk::Texture::static_type());
+        assert!(clipboard_has_media(&texture));
+    }
+
+    #[test]
+    fn uri_list_parses_local_files_and_ignores_urls_and_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let video = dir.path().join("summer clip.mp4");
+        let photo = dir.path().join("photo.png");
+        let subfolder = dir.path().join("folder");
+        std::fs::write(&video, b"mp4").unwrap();
+        std::fs::write(&photo, b"png").unwrap();
+        std::fs::create_dir(&subfolder).unwrap();
+
+        let video_uri = gio::File::for_path(&video).uri();
+        let photo_uri = gio::File::for_path(&photo).uri();
+        let folder_uri = gio::File::for_path(&subfolder).uri();
+        let payload = format!(
+            "copy\n# comment\nhttps://example.com/pic.png\n{video_uri}\n{folder_uri}\n{photo_uri}\n{video_uri}\n"
+        );
+        assert_eq!(parse_uri_list(&payload), vec![video, photo]);
+    }
+
+    #[test]
+    fn pasted_filenames_use_clean_extensions() {
+        assert_eq!(
+            pasted_filename("image/png", "abc123"),
+            "pasted-image-abc123.png"
+        );
+        assert_eq!(
+            pasted_filename("IMAGE/JPEG; charset=binary", "abc123"),
+            "pasted-image-abc123.jpg"
+        );
+        assert_eq!(
+            pasted_filename("image/gif", "abc123"),
+            "pasted-image-abc123.gif"
+        );
+        assert_eq!(
+            pasted_filename("video/mp4", "abc123"),
+            "pasted-video-abc123.mp4"
+        );
+        assert_eq!(
+            pasted_filename("video/quicktime", "abc123"),
+            "pasted-video-abc123.mov"
+        );
+        assert_eq!(
+            pasted_filename("video/x-matroska", "abc123"),
+            "pasted-video-abc123.mkv"
+        );
+        assert_eq!(
+            pasted_filename("audio/x-m4a", "abc123"),
+            "pasted-audio-abc123.m4a"
+        );
     }
 }

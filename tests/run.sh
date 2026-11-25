@@ -29,6 +29,8 @@ run_gui() {
     tests/visual-smoke.sh
     echo "==> Thread features"
     tests/thread-features.sh
+    echo "==> Clipboard media paste"
+    run_xvfb python3 tests/clipboard_paste.py
     echo "==> Realtime & notifications"
     run_xvfb python3 tests/realtime.py
     echo "==> Thread switching"

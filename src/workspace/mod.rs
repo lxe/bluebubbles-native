@@ -620,7 +620,7 @@ impl Workspace {
             &group_avatar_handler,
             &attachment_handler,
         );
-        this.wire_composer();
+        this.wire_composer(&window);
         this.start_session(app, &window, &counts);
     }
 
@@ -885,7 +885,7 @@ impl Workspace {
         });
     }
 
-    fn wire_composer(self: &Rc<Self>) {
+    fn wire_composer(self: &Rc<Self>, window: &adw::ApplicationWindow) {
         self.attach.connect_clicked({
             let weak = Rc::downgrade(self);
             move |_| {
@@ -950,6 +950,99 @@ impl Workspace {
             }
         });
         self.editor.add_controller(enter);
+        let editor_paste = gtk::EventControllerKey::new();
+        editor_paste.set_propagation_phase(gtk::PropagationPhase::Capture);
+        editor_paste.connect_key_pressed({
+            let weak = Rc::downgrade(self);
+            move |_, key, _, modifiers| {
+                if is_paste_shortcut(key, modifiers)
+                    && let Some(app) = weak.upgrade()
+                    && app.paste_clipboard_media(true)
+                {
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            }
+        });
+        self.editor.add_controller(editor_paste);
+        self.editor.connect_paste_clipboard({
+            let weak = Rc::downgrade(self);
+            move |editor| {
+                if let Some(app) = weak.upgrade()
+                    && app.paste_clipboard_media(true)
+                {
+                    editor.stop_signal_emission_by_name("paste-clipboard");
+                }
+            }
+        });
+        let composer_actions = gio::SimpleActionGroup::new();
+        let paste_media = gio::SimpleAction::new("paste-media", None);
+        paste_media.connect_activate({
+            let weak = Rc::downgrade(self);
+            move |_, _| {
+                if let Some(app) = weak.upgrade() {
+                    app.paste_clipboard_media(false);
+                }
+            }
+        });
+        composer_actions.add_action(&paste_media);
+        self.editor
+            .insert_action_group("composer", Some(&composer_actions));
+        let paste_menu = gio::Menu::new();
+        self.editor.set_extra_menu(Some(&paste_menu));
+        let refresh_paste_menu = Rc::new({
+            let weak = Rc::downgrade(self);
+            let menu = paste_menu.clone();
+            move || {
+                menu.remove_all();
+                if let Some(app) = weak.upgrade()
+                    && app.composer_ready_guid().is_some()
+                    && media_ui::clipboard_has_media(&app.editor.clipboard().formats())
+                {
+                    menu.append(Some("Paste Attachment"), Some("composer.paste-media"));
+                }
+            }
+        });
+        self.editor.clipboard().connect_changed({
+            let refresh = refresh_paste_menu.clone();
+            move |_| refresh()
+        });
+        let editor_context = gtk::GestureClick::builder().button(3).build();
+        editor_context.set_propagation_phase(gtk::PropagationPhase::Capture);
+        editor_context.connect_pressed({
+            let refresh = refresh_paste_menu.clone();
+            move |_, _, _, _| refresh()
+        });
+        self.editor.add_controller(editor_context);
+        let window_paste = gtk::EventControllerKey::new();
+        window_paste.connect_key_pressed({
+            let weak = Rc::downgrade(self);
+            let weak_window = window.downgrade();
+            move |_, key, _, modifiers| {
+                if !is_paste_shortcut(key, modifiers) {
+                    return glib::Propagation::Proceed;
+                }
+                let (Some(app), Some(window)) = (weak.upgrade(), weak_window.upgrade()) else {
+                    return glib::Propagation::Proceed;
+                };
+                if app.prefs.borrow().is_some() || !app.layout.shows_thread() {
+                    return glib::Propagation::Proceed;
+                }
+                if GtkWindowExt::focus(&window).is_some_and(|widget| {
+                    widget.is::<gtk::Editable>()
+                        || widget.is::<gtk::TextView>()
+                        || widget.ancestor(gtk::Editable::static_type()).is_some()
+                }) {
+                    return glib::Propagation::Proceed;
+                }
+                if app.paste_clipboard_media(false) {
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
+            }
+        });
+        window.add_controller(window_paste);
         let drop = gtk::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);
         drop.connect_drop({
             let weak = Rc::downgrade(self);
@@ -976,6 +1069,13 @@ impl Workspace {
         window: &adw::ApplicationWindow,
         counts: &Rc<rows::Counts>,
     ) {
+        background(
+            || {
+                media_ui::prune_pasted_cache();
+                Ok(())
+            },
+            |_| {},
+        );
         if self.mode == Mode::Live {
             glib::timeout_add_seconds_local(5, {
                 let weak = Rc::downgrade(self);
@@ -1530,6 +1630,19 @@ where
         }
         Err(_) => done(Err("Could not queue the preview.".into())),
     }
+}
+
+fn is_paste_shortcut(key: gdk::Key, modifiers: gdk::ModifierType) -> bool {
+    let disallowed = gdk::ModifierType::ALT_MASK | gdk::ModifierType::SUPER_MASK;
+    if modifiers.intersects(disallowed) {
+        return false;
+    }
+    let ctrl_v = matches!(key, gdk::Key::v | gdk::Key::V)
+        && modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+    let shift_insert = matches!(key, gdk::Key::Insert | gdk::Key::KP_Insert)
+        && modifiers.contains(gdk::ModifierType::SHIFT_MASK)
+        && !modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+    ctrl_v || shift_insert
 }
 
 fn boxed<T: 'static>(items: Vec<T>) -> Vec<glib::BoxedAnyObject> {
