@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::cache::{AVATAR_BYTE_LIMIT, Cache, ConversationSnapshot};
 use crate::model::{
-    Attachment, Conversation, Message, MessagePointer, Participant, Tapback, TapbackKind,
+    Attachment, Conversation, Message, MessagePointer, Participant, Service, Tapback, TapbackKind,
     address_key, sort_conversations,
 };
 
@@ -61,6 +61,8 @@ struct Envelope<T> {
 struct ServerChat {
     guid: String,
     style: Option<u32>,
+    #[serde(alias = "serviceName")]
+    service: Option<String>,
     properties: Option<Value>,
     display_name: Option<String>,
     chat_identifier: Option<String>,
@@ -75,6 +77,7 @@ struct ServerChat {
 struct Handle {
     address: Option<String>,
     display_name: Option<String>,
+    service: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +130,8 @@ struct ServerMessage {
     associated_messages: Option<Vec<ServerMessage>>,
     handle: Option<Handle>,
     handle_id: Option<i64>,
+    #[serde(alias = "serviceName")]
+    service: Option<String>,
     thread_originator_guid: Option<String>,
     thread_originator_part: Option<Value>,
     normalized_thread_part: Option<u32>,
@@ -783,6 +788,7 @@ impl ServerChat {
     fn into_conversation(self, contacts: &HashMap<String, ContactInfo>) -> Conversation {
         let latest = self.latest_message();
         let last_activity = latest.map(ServerMessage::timestamp).unwrap_or_default();
+        let latest_service = latest.and_then(ServerMessage::resolved_service);
         let preview = latest
             .map(|message| {
                 let text = message.display_text();
@@ -845,6 +851,9 @@ impl ServerChat {
         );
         row.last_activity = last_activity;
         row.group_style = self.style == Some(43);
+        row.service = Service::from_chat_guid(&row.guid)
+            .or_else(|| self.service.as_deref().and_then(Service::parse))
+            .or(latest_service);
         row.group_photo = self
             .properties
             .as_ref()
@@ -949,8 +958,21 @@ impl ServerMessage {
             .collect()
     }
 
+    fn resolved_service(&self) -> Option<Service> {
+        self.service
+            .as_deref()
+            .and_then(Service::parse)
+            .or_else(|| {
+                self.handle
+                    .as_ref()
+                    .and_then(|handle| handle.service.as_deref())
+                    .and_then(Service::parse)
+            })
+    }
+
     fn into_message(mut self) -> Option<Message> {
         let guid = self.guid.take()?;
+        let service = self.resolved_service();
         let text = self.display_text();
         let outgoing = self.is_from_me.unwrap_or(false);
         let sent_at = self.timestamp();
@@ -1008,6 +1030,7 @@ impl ServerMessage {
             sender_id,
             reply_to,
             tapback,
+            service,
         })
     }
 }
@@ -1154,6 +1177,22 @@ mod tests {
         .unwrap();
         let reply = threaded.into_message().unwrap().reply_to.unwrap();
         assert_eq!((reply.guid.as_str(), reply.part), ("parent", 2));
+
+        let rcs_chat: ServerChat = serde_json::from_str(
+            r#"{"guid":"any;+;chat-rcs","lastMessage":{"guid":"m1","text":"hi","service":"RCS","dateCreated":1795500000000}}"#,
+        )
+        .unwrap();
+        let conversation = rcs_chat.into_conversation(&std::collections::HashMap::new());
+        assert_eq!(conversation.service(), crate::model::Service::Rcs);
+
+        let sms_message: ServerMessage = serde_json::from_str(
+            r#"{"guid":"m-sms","text":"fallback","isFromMe":true,"handle":{"address":"+15550100100","service":"SMS"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            sms_message.into_message().unwrap().service,
+            Some(crate::model::Service::Sms)
+        );
     }
 
     #[test]

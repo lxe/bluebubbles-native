@@ -64,41 +64,51 @@ const ROLES: &[&str] = &[
     "accent_text",
     "selected",
     "outgoing",
+    "outgoing_sms",
+    "sms_accent",
     "incoming",
     "error",
     "error_surface",
 ];
 const LIGHT: &[&str] = &[
     "#f7f9fc", "#edf3f8", "#eef3f8", "#ffffff", "#172534", "#465c70", "#cbd8e3", "#d3dfe9",
-    "#185f94", "#ffffff", "#cfe4f5", "#dceefa", "#e9f0f6", "#a32439", "#fae4e9",
+    "#185f94", "#ffffff", "#cfe4f5", "#dceefa", "#d7f2df", "#1d7a3c", "#e9f0f6", "#a32439",
+    "#fae4e9",
 ];
 const DARK: &[&str] = &[
     "#121b24", "#192633", "#1b2836", "#202f3e", "#f6f9fc", "#b7cadb", "#3b5062", "#293b4c",
-    "#91cbff", "#102334", "#304e69", "#294a64", "#223443", "#ffacb8", "#492a34",
+    "#91cbff", "#102334", "#304e69", "#294a64", "#1f4f36", "#57d68d", "#223443", "#ffacb8",
+    "#492a34",
 ];
 const GRAPHITE: &[&str] = &[
     "#0d0e11", "#14161a", "#14161a", "#1d2026", "#f0f1f4", "#aeb5c1", "#343944", "#2b3039",
-    "#a3c9f5", "#111b2a", "#202b39", "#24374d", "#1b1e24", "#ffadb8", "#3e272f",
+    "#a3c9f5", "#111b2a", "#202b39", "#24374d", "#1c472f", "#5bd38a", "#1b1e24", "#ffadb8",
+    "#3e272f",
 ];
 const CHAMPAGNE: &[&str] = &[
     "#100e0d", "#181513", "#181513", "#221d19", "#f4f0eb", "#bcb0a4", "#473b32", "#342c25",
-    "#dbbf9c", "#261b11", "#302620", "#382c22", "#211d1a", "#ffb3a7", "#402824",
+    "#dbbf9c", "#261b11", "#302620", "#382c22", "#23452c", "#73cf8c", "#211d1a", "#ffb3a7",
+    "#402824",
 ];
 const PERIWINKLE: &[&str] = &[
     "#0d0e17", "#151621", "#151621", "#202232", "#f0f0f8", "#b1b4cd", "#40445b", "#2c3043",
-    "#b2bcfa", "#161b38", "#272b40", "#2d3251", "#1b1d2a", "#ffadca", "#3e283b",
+    "#b2bcfa", "#161b38", "#272b40", "#2d3251", "#1d4736", "#60d89b", "#1b1d2a", "#ffadca",
+    "#3e283b",
 ];
 const NEON: &[&str] = &[
     "#08090b", "#101115", "#121317", "#191b20", "#f1f3f7", "#adb2be", "#343844", "#282b33",
-    "#5aebe2", "#092220", "#182324", "#30234b", "#17191e", "#ff9cb8", "#3d2230",
+    "#5aebe2", "#092220", "#182324", "#30234b", "#174a2c", "#4be384", "#17191e", "#ff9cb8",
+    "#3d2230",
 ];
 const PORCELAIN: &[&str] = &[
     "#f5f7fb", "#eaf0f8", "#edf2f9", "#ffffff", "#1a2335", "#49576e", "#c3cedf", "#cfd9e8",
-    "#264dad", "#ffffff", "#d9e4fa", "#dee8fb", "#ffffff", "#9f2440", "#f8e4ea",
+    "#264dad", "#ffffff", "#d9e4fa", "#dee8fb", "#d6f1de", "#1c7b3e", "#ffffff", "#9f2440",
+    "#f8e4ea",
 ];
 const IVORY: &[&str] = &[
     "#f7f4ed", "#eee8dd", "#f1ece2", "#fffdf7", "#30251f", "#605147", "#cbbdad", "#ded3c3",
-    "#8a4930", "#fff9f2", "#ecddce", "#f0dfd1", "#fffaf1", "#972e37", "#f5dedc",
+    "#8a4930", "#fff9f2", "#ecddce", "#f0dfd1", "#dbeed7", "#2d783d", "#fffaf1", "#972e37",
+    "#f5dedc",
 ];
 const HIGH_CONTRAST: &[&str] = &[
     "@window_bg_color",
@@ -113,6 +123,8 @@ const HIGH_CONTRAST: &[&str] = &[
     "@accent_fg_color",
     "mix(@window_bg_color, @accent_bg_color, 0.25)",
     "mix(@window_bg_color, @accent_bg_color, 0.25)",
+    "mix(@window_bg_color, @success_bg_color, 0.30)",
+    "@success_color",
     "@card_bg_color",
     "@error_color",
     "mix(@window_bg_color, @error_bg_color, 0.15)",

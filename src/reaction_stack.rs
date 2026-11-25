@@ -9,6 +9,9 @@ const OVERLAP: i32 = 12;
 pub const HEADROOM: i32 = BADGE_SIZE - OVERLAP;
 const STACK_STEP: f64 = 14.0;
 const OPEN_STEP: f64 = 27.0;
+const HIT_PAD_X: i32 = 10;
+const HIT_PAD_TOP: i32 = 8;
+const HIT_PAD_BOTTOM: i32 = 8;
 
 mod emoji {
     use adw::prelude::*;
@@ -59,13 +62,22 @@ mod imp {
 
     use gtk::{glib, subclass::prelude::*};
 
+    #[derive(Clone, Copy, PartialEq)]
+    pub(super) struct BadgeLayout {
+        pub(super) rightward: bool,
+        pub(super) step: f64,
+        pub(super) gaps: usize,
+        pub(super) pad_left: i32,
+        pub(super) pad_top: i32,
+    }
+
     #[derive(Default)]
     pub struct ReactionStack {
         pub(super) hovered: Cell<bool>,
         pub(super) pinned: Cell<bool>,
         pub(super) openness: Cell<f64>,
         pub(super) animation: RefCell<Option<adw::TimedAnimation>>,
-        pub(super) offsets: Cell<Option<(bool, f64, usize)>>,
+        pub(super) offsets: Cell<Option<BadgeLayout>>,
         pub(super) outgoing: Cell<bool>,
         pub(super) guid: RefCell<String>,
         pub(super) count: Cell<usize>,
@@ -194,8 +206,10 @@ impl ReactionStack {
         self.update_state(&[gtk::accessible::State::Expanded(
             (badges.len() > 1).then_some(state.hovered.get() || state.pinned.get()),
         )]);
-        self.set_focusable(badges.len() > 1);
-        self.set_can_target(!badges.is_empty());
+        let interactive = badges.len() > 1;
+        self.set_cursor_from_name(interactive.then_some("pointer"));
+        self.set_focusable(interactive);
+        self.set_can_target(interactive);
         self.set_visible(!badges.is_empty());
     }
 
@@ -224,22 +238,44 @@ impl ReactionStack {
         let step = step_closed + (step_open - step_closed) * state.openness.get();
         let span = step * gaps as f64;
         let rightward = side == 1;
-        if state.offsets.replace(Some((rightward, step, gaps))) != Some((rightward, step, gaps)) {
+        let x = if rightward { leading } else { leading - span };
+        let visual_x = x.floor() as i32;
+        let visual_y = (anchor.y().round() as i32 - HEADROOM).max(0);
+        let visual_w = BADGE_SIZE + span.ceil() as i32;
+        let (pad_left, pad_right, pad_top, pad_bottom) = if gaps > 0 {
+            let left = visual_x.min(HIT_PAD_X);
+            let right = (lane_width - (visual_x + visual_w)).clamp(0, HIT_PAD_X);
+            let top = visual_y.min(HIT_PAD_TOP);
+            (left, right, top, HIT_PAD_BOTTOM)
+        } else {
+            (0, 0, 0, 0)
+        };
+        let layout = imp::BadgeLayout {
+            rightward,
+            step,
+            gaps,
+            pad_left,
+            pad_top,
+        };
+        if state.offsets.replace(Some(layout)) != Some(layout) {
             let fixed = self.fixed();
             let mut child = fixed.first_child();
             for index in 0..=gaps {
                 let Some(badge) = child else { break };
                 let slot = if rightward { gaps - index } else { index };
-                fixed.move_(&badge, slot as f64 * step, 0.0);
+                fixed.move_(
+                    &badge,
+                    f64::from(pad_left) + slot as f64 * step,
+                    f64::from(pad_top),
+                );
                 child = badge.next_sibling();
             }
         }
-        let x = if rightward { leading } else { leading - span };
         gdk::Rectangle::new(
-            x.floor() as i32,
-            anchor.y().round() as i32 - HEADROOM,
-            BADGE_SIZE + span.ceil() as i32,
-            BADGE_SIZE,
+            visual_x - pad_left,
+            visual_y - pad_top,
+            visual_w + pad_left + pad_right,
+            BADGE_SIZE + pad_top + pad_bottom,
         )
     }
 

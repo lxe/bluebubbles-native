@@ -8,7 +8,7 @@ use gtk::{gdk, gio, glib};
 use crate::api::BlueBubbles;
 use crate::icons::Icon;
 use crate::media as media_ui;
-use crate::model::{Conversation, Message, MessagePointer, TapbackKind};
+use crate::model::{Conversation, Message, MessagePointer, Service, TapbackKind};
 use crate::thread::{self, MessageRow, SendState};
 
 use super::{
@@ -125,9 +125,39 @@ impl Workspace {
         }
     }
 
+    pub(super) fn active_service(&self) -> Service {
+        let state = self.state.borrow();
+        let Some(active) = state.active.as_ref() else {
+            return Service::IMessage;
+        };
+        if let Some(service) = Service::from_chat_guid(&active.guid) {
+            return service;
+        }
+        state
+            .threads
+            .get(&active.guid)
+            .and_then(|thread| thread.messages.as_deref())
+            .and_then(|messages| {
+                messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.tapback.is_none())
+                    .and_then(|message| message.service)
+            })
+            .unwrap_or_else(|| active.service())
+    }
+
     pub(super) fn update_composer(&self) {
         let ready = self.composer_ready_guid().is_some();
         let has_files = !self.state.borrow().files.is_empty();
+        let service = self.active_service();
+        if service.is_green() {
+            self.compose.add_css_class("sms");
+        } else {
+            self.compose.remove_css_class("sms");
+        }
+        self.editor_placeholder
+            .set_label(service.composer_placeholder());
         self.editor_placeholder
             .set_visible(self.editor_text().is_empty());
         self.editor.set_editable(ready);
@@ -321,6 +351,7 @@ impl Workspace {
             let state = self.state.borrow();
             (state.files.clone(), state.reply.clone())
         };
+        let active_service = self.active_service();
         if self.mode == Mode::Patterns {
             let text = body.trim();
             self.view()
@@ -335,8 +366,10 @@ impl Workspace {
                         },
                         outgoing: true,
                         reply_to: reply.as_ref().map(|reply| reply.target.clone()),
+                        service: Some(active_service),
                         ..Message::default()
                     },
+                    service: active_service,
                     group: self
                         .state
                         .borrow()
@@ -387,6 +420,7 @@ impl Workspace {
                 outgoing: true,
                 sent_at: timestamp,
                 reply_to: reply.as_ref().map(|reply| reply.target.clone()),
+                service: Some(active_service),
                 ..Message::default()
             };
             queue.push_back(job.clone());

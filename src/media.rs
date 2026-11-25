@@ -846,6 +846,7 @@ async fn save_pasted_bytes(mime: &str, bytes: &[u8]) -> Result<PathBuf, String> 
 pub fn link_row(
     url: Url,
     outgoing: bool,
+    green: bool,
     standalone: bool,
     files: &gtk::Box,
     handler: &Handler,
@@ -886,6 +887,9 @@ pub fn link_row(
     link.add_css_class("link-card");
     if outgoing {
         link.add_css_class("outgoing");
+        if green {
+            link.add_css_class("sms");
+        }
     }
     let make_target = {
         let card = link.downgrade();

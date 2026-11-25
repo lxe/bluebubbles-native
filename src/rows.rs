@@ -514,8 +514,10 @@ fn bind_message(widgets: &MessageRowWidgets, data: &MessageRow, handler: &media:
     widgets
         .bubble
         .update_property(&[gtk::accessible::Property::Description(description)]);
+    let green = data.service.is_green();
     widgets.bubble.set_pending(pending);
     make_outgoing(&widgets.bubble, message.outgoing);
+    make_sms(&widgets.bubble, message.outgoing && green);
     widgets.bubble.set_halign(align);
 
     let link = (!pending)
@@ -546,6 +548,7 @@ fn bind_message(widgets: &MessageRowWidgets, data: &MessageRow, handler: &media:
         let card = media::link_row(
             link,
             message.outgoing,
+            green,
             standalone_link,
             &widgets.files,
             handler,
@@ -630,6 +633,14 @@ fn make_outgoing(widget: &impl IsA<gtk::Widget>, outgoing: bool) {
         widget.add_css_class("outgoing");
     } else {
         widget.remove_css_class("outgoing");
+    }
+}
+
+fn make_sms(widget: &impl IsA<gtk::Widget>, sms: bool) {
+    if sms {
+        widget.add_css_class("sms");
+    } else {
+        widget.remove_css_class("sms");
     }
 }
 

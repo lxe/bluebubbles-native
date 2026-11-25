@@ -421,8 +421,10 @@ impl Workspace {
                             }
                         }
                         for pending in &thread.pending_sends {
+                            let service = pending.message.service.unwrap_or_else(|| chat.service());
                             rows.push(MessageRow {
                                 message: pending.message.clone(),
+                                service,
                                 group: chat.is_group(),
                                 starts_group: false,
                                 show_time: false,
@@ -483,6 +485,7 @@ impl Workspace {
         }
         self.thread_stack.set_visible_child_name("timeline");
         self.update_load_more();
+        self.update_composer();
     }
 
     pub(super) fn update_load_more(&self) {

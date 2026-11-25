@@ -1,3 +1,40 @@
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub enum Service {
+    #[default]
+    IMessage,
+    Sms,
+    Rcs,
+}
+
+impl Service {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "imessage" => Some(Self::IMessage),
+            "sms" | "mms" => Some(Self::Sms),
+            "rcs" => Some(Self::Rcs),
+            _ => None,
+        }
+    }
+
+    pub fn from_chat_guid(guid: &str) -> Option<Self> {
+        guid.split(';').next().and_then(Self::parse)
+    }
+
+    pub fn is_green(self) -> bool {
+        matches!(self, Self::Sms | Self::Rcs)
+    }
+
+    pub fn composer_placeholder(self) -> &'static str {
+        match self {
+            Self::IMessage => "Message",
+            Self::Sms => "Text Message · SMS",
+            Self::Rcs => "Text Message · RCS",
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Conversation {
     pub guid: String,
@@ -12,6 +49,8 @@ pub struct Conversation {
     pub group_photo: Option<String>,
     #[serde(default)]
     pub group_style: bool,
+    #[serde(default)]
+    pub service: Option<Service>,
     #[serde(default)]
     pub participants: Vec<Participant>,
 }
@@ -52,6 +91,8 @@ pub struct Message {
     pub reply_to: Option<MessagePointer>,
     #[serde(default)]
     pub tapback: Option<Tapback>,
+    #[serde(default)]
+    pub service: Option<Service>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -172,6 +213,7 @@ pub fn merge_messages(cached: &mut Vec<Message>, incoming: Vec<Message>) -> bool
 
 impl Conversation {
     pub fn new(guid: String, name: String, addresses: &str, preview: String) -> Self {
+        let service = Service::from_chat_guid(&guid);
         let search_text = format!("{name} {addresses} {preview}").to_lowercase();
         Self {
             guid,
@@ -182,8 +224,15 @@ impl Conversation {
             avatar: None,
             group_photo: None,
             group_style: false,
+            service,
             participants: Vec::new(),
         }
+    }
+
+    pub fn service(&self) -> Service {
+        self.service
+            .or_else(|| Service::from_chat_guid(&self.guid))
+            .unwrap_or(Service::IMessage)
     }
 
     pub fn is_group(&self) -> bool {
@@ -196,6 +245,11 @@ impl Conversation {
     pub fn update_preview(&mut self, message: &Message) -> bool {
         if message.tapback.is_some() || message.sent_at < self.last_activity {
             return false;
+        }
+        if let Some(service) = message.service
+            && (self.service.is_none() || Service::from_chat_guid(&self.guid).is_none())
+        {
+            self.service = Some(service);
         }
         let preview = message.preview();
         if self.last_activity == message.sent_at && self.preview == preview {
@@ -336,5 +390,30 @@ mod tests {
         let mut list = vec![chat, other];
         sort_conversations(&mut list);
         assert_eq!(list[0].guid, "iMessage;+;chat1");
+    }
+
+    #[test]
+    fn service_detects_sms_rcs_and_imessage() {
+        assert_eq!(
+            Service::from_chat_guid("SMS;-;+15550100100"),
+            Some(Service::Sms)
+        );
+        assert_eq!(Service::from_chat_guid("RCS;+;chat42"), Some(Service::Rcs));
+        assert_eq!(
+            Service::from_chat_guid("iMessage;-;+15550100100"),
+            Some(Service::IMessage)
+        );
+        assert_eq!(Service::from_chat_guid("any;+;chat99"), None);
+        assert!(Service::Sms.is_green());
+        assert!(Service::Rcs.is_green());
+        assert!(!Service::IMessage.is_green());
+
+        let mut unified =
+            Conversation::new("any;-;+15550100100".into(), "Alex".into(), "", "".into());
+        assert_eq!(unified.service(), Service::IMessage);
+        let mut rcs_msg = msg("m1", "hi", 100);
+        rcs_msg.service = Some(Service::Rcs);
+        assert!(unified.update_preview(&rcs_msg));
+        assert_eq!(unified.service(), Service::Rcs);
     }
 }

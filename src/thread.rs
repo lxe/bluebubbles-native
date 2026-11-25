@@ -1,7 +1,7 @@
 use gtk::glib;
 use std::collections::{BTreeMap, HashMap};
 
-use crate::model::{Conversation, Message, Participant, TapbackKind, address_key};
+use crate::model::{Conversation, Message, Participant, Service, TapbackKind, address_key};
 
 #[derive(Clone, PartialEq)]
 pub struct Quote {
@@ -27,6 +27,7 @@ pub enum SendState {
 #[derive(Clone, PartialEq)]
 pub struct MessageRow {
     pub message: Message,
+    pub service: Service,
     pub group: bool,
     pub starts_group: bool,
     pub show_time: bool,
@@ -219,8 +220,10 @@ pub fn timeline(messages: &[Message], chat: &Conversation) -> Vec<MessageRow> {
             } else {
                 None
             };
+            let service = message.service.unwrap_or_else(|| chat.service());
             MessageRow {
                 message: message.clone(),
+                service,
                 group,
                 starts_group,
                 show_time,

@@ -165,8 +165,16 @@
     color: @bb_outgoing;
 }
 
+.bb-window bb-squircle.thread-bubble.outgoing.sms {
+    color: @bb_outgoing_sms;
+}
+
 .bb-window bb-squircle.thread-bubble.outgoing.pending-bubble {
     color: mix(@bb_outgoing, @bb_canvas, 0.48);
+}
+
+.bb-window bb-squircle.thread-bubble.outgoing.sms.pending-bubble {
+    color: mix(@bb_outgoing_sms, @bb_canvas, 0.48);
 }
 
 .bb-window .pending-bubble .message {
@@ -253,6 +261,10 @@
     background: @bb_outgoing;
 }
 
+.bb-window .link-card.outgoing.sms {
+    background: @bb_outgoing_sms;
+}
+
 .bb-window .media-thumbnail {
     padding: 0;
     background: transparent;
@@ -320,6 +332,10 @@
     border-color: @bb_accent;
 }
 
+.bb-window .composer.sms .compose-surface:focus-within {
+    border-color: @bb_sms_accent;
+}
+
 .bb-window .compose-control {
     min-height: 28px;
     min-width: 28px;
@@ -355,6 +371,14 @@
 
 .bb-window .composer .send-control:hover:not(:disabled) {
     background: alpha(@bb_accent, 0.12);
+}
+
+.bb-window .composer.sms .send-control {
+    color: @bb_sms_accent;
+}
+
+.bb-window .composer.sms .send-control:hover:not(:disabled) {
+    background: alpha(@bb_sms_accent, 0.14);
 }
 
 .bb-window .composer .send-control:disabled {
@@ -579,8 +603,8 @@
 }
 
 .bb-window .context-commands button.reaction-emoji {
-    min-width: 30px;
-    min-height: 32px;
+    min-width: 34px;
+    min-height: 36px;
     padding: 0;
     font-size: 18px;
 }
