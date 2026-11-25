@@ -4,8 +4,6 @@ A fast, lightweight, native Linux desktop client for [BlueBubbles Server](https:
 
 ![BlueBubbles Native demo](docs/media/demo.webp)
 
-*[Full 2048×1400 60 FPS video (`docs/media/demo.mp4`)](docs/media/demo.mp4)*
-
 ## Features
 
 - **Native performance & small footprint** — compiled Rust + GTK 4 (~14 MB binary, no Electron runtime), with virtualized lists for instant scrolling and thread switching.
