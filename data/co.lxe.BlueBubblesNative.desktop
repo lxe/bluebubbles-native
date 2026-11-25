@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=BlueBubbles Native
+GenericName=Messaging
+Comment=Read and send messages through your BlueBubbles server
+Exec=bluebubbles-native
+TryExec=bluebubbles-native
+Icon=co.lxe.BlueBubblesNative
+Terminal=false
+StartupNotify=true
+StartupWMClass=co.lxe.BlueBubblesNative
+Categories=Network;InstantMessaging;Chat;
+Keywords=BlueBubbles;iMessage;Messages;SMS;

@@ -1,0 +1,575 @@
+.bb-window {
+    background-color: @bb_canvas;
+    color: @bb_text;
+}
+
+.bb-window headerbar {
+    background: @bb_header;
+    color: @bb_text;
+    min-height: 45px;
+    border-bottom: 1px solid @bb_border;
+    box-shadow: none;
+}
+
+.bb-window .bb-sidebar, .bb-window .conversations {
+    background: @bb_sidebar;
+    color: @bb_text;
+}
+
+.bb-window .sidebar-scroll > undershoot,
+.bb-window .sidebar-scroll > overshoot,
+.bb-window .timeline-scroll > undershoot,
+.bb-window .timeline-scroll > overshoot {
+    background: none;
+    box-shadow: none;
+}
+
+.bb-window .sidebar-scroll > scrollbar.vertical {
+    margin-right: 0;
+    padding-right: 0;
+}
+
+.bb-window .sidebar-scroll > scrollbar.vertical > range > trough {
+    margin-right: 0;
+}
+
+.bb-window .sidebar-scroll > scrollbar.vertical,
+.bb-window .timeline-scroll > scrollbar.vertical {
+    color: @bb_muted;
+}
+
+.bb-window .workspace > separator {
+    min-width: 7px;
+    border: 0;
+    box-shadow: none;
+    background-color: transparent;
+    background-image: linear-gradient(@bb_divider, @bb_divider);
+    background-size: 1px 100%;
+    background-position: left;
+    background-repeat: no-repeat;
+}
+
+.bb-window listview.conversations > row,
+.bb-window listview.conversations > row:selected {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: @bb_text;
+    box-shadow: none;
+}
+
+.bb-window listview.conversations > row:focus-visible {
+    outline: 0;
+}
+
+.bb-window bb-squircle.conversation-shape {
+    color: transparent;
+}
+
+.bb-window listview.conversations > row:hover bb-squircle.conversation-shape,
+.bb-window listview.conversations > row:focus-visible bb-squircle.conversation-shape {
+    color: alpha(@bb_accent, 0.10);
+}
+
+.bb-window listview.conversations > row bb-squircle.conversation-shape.active-conversation {
+    color: @bb_selected;
+}
+
+.bb-window .conversation-row {
+    padding: 8px 6px;
+    color: @bb_text;
+}
+
+.bb-window .dim-label, .bb-window .preferences-content label.subtitle {
+    color: @bb_muted;
+    opacity: 1;
+}
+
+.bb-window .conversation-shape.active-conversation .dim-label {
+    color: @bb_text;
+}
+
+.bb-window entry.search {
+    background-color: @bb_surface;
+    color: @bb_text;
+}
+
+.bb-window .timeline {
+    padding: 12px 0;
+    background-color: @bb_canvas;
+    color: @bb_text;
+}
+
+.bb-window .timeline > row {
+    padding: 0;
+}
+
+.bb-window .load-more-messages {
+    padding: 5px 12px;
+    border: 1px solid @bb_divider;
+    border-radius: 12px;
+    background: @bb_surface;
+    color: @bb_text;
+    box-shadow: 0 2px 5px alpha(#030609, 0.24);
+    font-size: 0.9em;
+}
+
+.bb-window .load-more-messages:hover {
+    background: @bb_selected;
+}
+
+.bb-window button.jump-latest {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
+    border: 1px solid @bb_divider;
+    border-radius: 12px;
+    background: @bb_surface;
+    color: @bb_text;
+    box-shadow: 0 2px 5px alpha(#030609, 0.24);
+}
+
+.bb-window button.jump-latest:hover {
+    background: @bb_selected;
+}
+
+.bb-window .thread-content-inset {
+    margin: 0 16px;
+}
+
+/* Six pixels of the native drag handle are painted as part of the thread. */
+.bb-window .workspace .thread-content-inset:dir(ltr) {
+    margin-left: 10px;
+}
+
+.bb-window .workspace .thread-content-inset:dir(rtl) {
+    margin-right: 10px;
+}
+
+.bb-window .attachment-row,
+.bb-window .link-card,
+.bb-window .media-thumbnail {
+    border-radius: 14px;
+    border: 0;
+    background: @bb_incoming;
+    color: @bb_text;
+    box-shadow: 0 2px 5px alpha(#030609, 0.24);
+}
+
+.bb-window bb-squircle.thread-bubble {
+    color: @bb_incoming;
+}
+
+.bb-window bb-squircle.thread-bubble.outgoing {
+    color: @bb_outgoing;
+}
+
+.bb-window bb-squircle.thread-bubble.outgoing.pending-bubble {
+    color: mix(@bb_outgoing, @bb_canvas, 0.48);
+}
+
+.bb-window .pending-bubble .message {
+    color: @bb_muted;
+}
+
+.bb-window .message-send-status {
+    font-size: 0.79em;
+    color: @bb_muted;
+}
+
+.bb-window .message-send-status.error {
+    color: @bb_error;
+}
+
+.bb-window .message {
+    color: @bb_text;
+    padding: 9px 13px 8px;
+}
+
+.bb-window .message link {
+    color: @bb_link;
+}
+
+.bb-window .message-time {
+    color: @bb_timestamp;
+    font-size: 0.8em;
+    margin: 10px 0 6px;
+}
+
+.bb-window .message-sender {
+    font-size: 0.9em;
+}
+
+.bb-window .thread-quote {
+    padding: 7px 10px;
+    border-radius: 8px;
+    background-color: alpha(@bb_text, 0.10);
+    color: @bb_text;
+}
+
+.bb-window .thread-quote .dim-label {
+    font-weight: normal;
+}
+
+.bb-window .thread-quote:hover {
+    background-color: alpha(@bb_text, 0.16);
+}
+
+.bb-window button.reaction-stack {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    box-shadow: none;
+}
+
+.bb-window .reaction-stack-emoji {
+    font-size: 18px;
+}
+
+.bb-window .reaction-stack-count {
+    color: @bb_text;
+    font-size: 8px;
+    font-weight: bold;
+    text-shadow: 0 1px 2px #030609;
+}
+
+.bb-window .attachment-row {
+    padding: 5px 8px;
+}
+
+.bb-window .link-card {
+    padding: 8px 11px;
+}
+
+.bb-window .link-card .heading {
+    color: @bb_link;
+}
+
+.bb-window .link-card.outgoing {
+    background: @bb_outgoing;
+}
+
+.bb-window .media-thumbnail {
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.bb-window bb-squircle.media-contour {
+    color: @bb_incoming;
+}
+
+.bb-window .media-placeholder .bb-icon {
+    color: @bb_muted;
+}
+
+.bb-window .bb-lightbox {
+    background-color: @bb_canvas;
+}
+
+.bb-window button.viewer-close {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
+    border-radius: 999px;
+    background: alpha(@bb_canvas, 0.88);
+    color: @bb_text;
+    border: 1px solid alpha(@bb_text, 0.26);
+}
+
+.bb-window button.viewer-close:hover {
+    background: @bb_header;
+}
+
+.bb-window .composer {
+    padding: 8px 0 15px;
+    background-color: @bb_canvas;
+}
+
+.bb-window .compose-surface {
+    border-radius: 14px;
+    padding: 5px 9px;
+    border: 1px solid @bb_border;
+    background-color: @bb_surface;
+}
+
+.bb-window .compose-surface.expanded {
+    padding: 6px 10px 7px;
+}
+
+.bb-window .compose-surface:focus-within {
+    border-color: @bb_accent;
+}
+
+.bb-window .compose-control {
+    min-height: 28px;
+    min-width: 28px;
+    padding: 0;
+}
+
+.bb-window .message-entry textview, .bb-window .message-entry textview text {
+    background-color: transparent;
+    color: @bb_text;
+}
+
+.bb-window .compose-placeholder {
+    margin-left: 4px;
+    margin-top: 6px;
+    color: @bb_muted;
+}
+
+.bb-window button.suggested-action {
+    background: @bb_accent;
+    color: @bb_accent_text;
+}
+
+.bb-window button.suggested-action:disabled {
+    background: @bb_sidebar;
+    color: @bb_muted;
+}
+
+.bb-window .composer .send-control {
+    border-radius: 8px;
+    color: @bb_accent;
+    background: transparent;
+}
+
+.bb-window .composer .send-control:hover:not(:disabled) {
+    background: alpha(@bb_accent, 0.12);
+}
+
+.bb-window .composer .send-control:disabled {
+    color: @bb_muted;
+    opacity: 0.65;
+}
+
+.bb-window .preferences-sidebar,
+.bb-window .preferences-sidebar list.preferences-nav {
+    background-color: @bb_sidebar;
+    color: @bb_text;
+}
+
+.bb-window .preferences-sidebar headerbar {
+    background-color: @bb_sidebar;
+    border-bottom: 1px solid @bb_divider;
+}
+
+.bb-window .preferences-content headerbar {
+    background-color: @bb_header;
+    border-bottom: 1px solid @bb_divider;
+}
+
+.bb-window separator.preferences-divider {
+    background-color: @bb_divider;
+    min-width: 1px;
+}
+
+.bb-window list.preferences-nav {
+    padding: 10px 8px;
+}
+
+.bb-window list.preferences-nav > row {
+    padding: 0;
+    margin: 2px 0;
+    border-radius: 10px;
+    color: @bb_text;
+    background: transparent;
+}
+
+.bb-window list.preferences-nav > row:hover {
+    background-color: alpha(@bb_accent, 0.10);
+}
+
+.bb-window list.preferences-nav > row:focus {
+    outline: 0;
+}
+
+.bb-window list.preferences-nav > row:focus-visible {
+    outline: 2px solid @bb_accent;
+    outline-offset: -2px;
+}
+
+.bb-window list.preferences-nav > row:selected {
+    background-color: @bb_selected;
+    color: @bb_text;
+    font-weight: 600;
+}
+
+.bb-window list.preferences-nav > row .bb-icon {
+    color: @bb_muted;
+}
+
+.bb-window list.preferences-nav > row:selected .bb-icon {
+    color: @bb_accent;
+}
+
+.bb-window .preferences-tab {
+    padding: 9px 11px;
+}
+
+.bb-window .preferences-content,
+.bb-window .preferences-content scrolledwindow,
+.bb-window .preferences-content viewport {
+    background-color: @bb_header;
+    color: @bb_text;
+}
+
+.bb-window .preferences-content .boxed-list {
+    border-radius: 14px;
+    background-color: @bb_surface;
+    box-shadow: 0 2px 7px alpha(#060b10, 0.12);
+}
+
+.bb-window .preferences-content checkbutton radio:checked,
+.bb-window switch:checked {
+    background-color: @bb_accent;
+    color: @bb_accent_text;
+}
+
+.bb-window .appearance-page .boxed-list row > box.header {
+    min-height: 43px;
+}
+
+.bb-window .text-size-control {
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.bb-window .text-size-control button {
+    min-height: 34px;
+    padding: 0;
+}
+
+.bb-window .text-size-control button.text-size-step {
+    min-width: 34px;
+}
+
+.bb-window .text-size-control button.text-size-value {
+    min-width: 68px;
+}
+
+.bb-window headerbar windowcontrols {
+    font-size: 14px;
+}
+
+.bb-window button.window-minimize-control {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    margin-end: 2px;
+    border-radius: 999px;
+    background-color: alpha(@bb_text, 0.10);
+    color: @bb_text;
+    box-shadow: none;
+}
+
+.bb-window button.window-minimize-control:hover {
+    background-color: alpha(@bb_text, 0.15);
+}
+
+.bb-window button.window-minimize-control:active {
+    background-color: alpha(@bb_text, 0.20);
+}
+
+.bb-window :focus-visible {
+    outline-color: @bb_accent;
+}
+
+.bb-window row.connection-error {
+    background-color: @bb_error_surface;
+}
+
+.bb-window row.connection-error .bb-icon,
+.bb-window row.connection-error label.title,
+.bb-window row.connection-error label.subtitle,
+.bb-window .error-toast {
+    color: @bb_error;
+    opacity: 1;
+}
+
+.bb-window .sync-orbit {
+    color: @bb_accent;
+}
+
+.bb-window .workspace headerbar.main-header {
+    background: none;
+    border-bottom: 0;
+    padding-bottom: 1px;
+}
+
+.bb-window .wide-header-background {
+    background: @bb_header;
+    border-bottom: 1px solid @bb_divider;
+}
+
+.bb-window .wide-header-background:backdrop {
+    background: mix(@bb_header, @bb_canvas, 0.55);
+}
+
+.bb-window .main-header {
+    border-bottom-color: @bb_divider;
+}
+
+.bb-window headerbar.sidebar-header > windowhandle > box {
+    padding: 8px 0;
+}
+
+.bb-window button.sidebar-header-action {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
+    background-color: alpha(@bb_text, 0.10);
+}
+
+.bb-window button.sidebar-header-action:hover {
+    background-color: alpha(@bb_text, 0.15);
+}
+
+.bb-window button.sidebar-header-action:active {
+    background-color: alpha(@bb_text, 0.20);
+}
+
+.bb-window button.sidebar-header-action.syncing:disabled {
+    filter: none;
+}
+
+.bb-window popover.context-menu contents {
+    background: @bb_header;
+    color: @bb_text;
+    border-radius: 12px;
+    box-shadow: 0 6px 18px alpha(#030609, 0.45);
+}
+
+.bb-window popover.context-menu arrow {
+    background: @bb_header;
+}
+
+.bb-window .context-commands {
+    padding: 3px;
+    outline: 0;
+}
+
+.bb-window .context-commands button {
+    min-height: 30px;
+    padding: 0 9px;
+    border-radius: 7px;
+}
+
+.bb-window .reaction-picker {
+    margin-bottom: 4px;
+}
+
+.bb-window .context-commands button.reaction-emoji {
+    min-width: 30px;
+    min-height: 32px;
+    padding: 0;
+    font-size: 18px;
+}
+
+.bb-window .reaction-picker button.own {
+    background: @bb_selected;
+}
