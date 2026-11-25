@@ -334,8 +334,7 @@ impl Workspace {
             .find(|chat| chat.guid == guid)
             .cloned();
         if let Some(window) = self.window.upgrade() {
-            window.present();
-            window.unminimize();
+            crate::tray::present_window(&window, None);
             if let Some(app) = window.application() {
                 app.withdraw_notification(guid);
             }

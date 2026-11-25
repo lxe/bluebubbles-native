@@ -54,8 +54,7 @@ fn main() -> glib::ExitCode {
             .active_window()
             .or_else(|| app.windows().into_iter().next())
         {
-            window.present();
-            window.unminimize();
+            tray::present_window(&window, None);
         } else {
             Workspace::open(app, mode);
         }

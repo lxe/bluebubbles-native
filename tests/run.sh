@@ -49,6 +49,8 @@ case "$mode" in
         run_gui
         echo "==> Wayland header seam"
         tests/visual-wayland-seam.sh
+        echo "==> Wayland tray raise"
+        dbus-run-session -- python3 tests/tray_wayland_raise.py
         ;;
     -h|--help)
         cat <<'EOF'

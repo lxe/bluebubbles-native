@@ -1,11 +1,90 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib};
 use ksni::{Icon, MenuItem, TrayMethods, menu::StandardItem};
 
 use crate::settings::TrayOptions;
+
+thread_local! {
+    static PENDING_RAISE: RefCell<Option<glib::SourceId>> = const { RefCell::new(None) };
+}
+
+fn cancel_pending_present() {
+    PENDING_RAISE.with(|slot| {
+        if let Some(source) = slot.borrow_mut().take() {
+            source.remove();
+        }
+    });
+}
+
+fn is_wayland_window(window: &gtk::Window) -> bool {
+    WidgetExt::display(window).type_().name() == "GdkWaylandDisplay"
+}
+
+pub fn present_window(window: &impl IsA<gtk::Window>, token: Option<&str>) {
+    cancel_pending_present();
+    let window = window.as_ref();
+    let was_visible = window.is_visible();
+    let was_active = window.is_active();
+    let token = token.filter(|value| !value.is_empty());
+    if let Some(token) = token {
+        window.set_startup_id(token);
+    }
+    window.unminimize();
+    window.present();
+
+    if !was_visible || was_active || !is_wayland_window(window) {
+        return;
+    }
+
+    // On Wayland, presenting an already-mapped window only raises it when the
+    // compositor honors an xdg_activation_v1 token. If the tray host did not
+    // send one, or the compositor ignores activation on mapped windows (such as
+    // Hyprland's default misc:focus_on_activate = false), unmap and remap the
+    // surface so it comes forward and gains focus on the active workspace.
+    let weak = window.downgrade();
+    let remap = move || {
+        PENDING_RAISE.with(|slot| {
+            slot.borrow_mut().take();
+        });
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        if !window.is_visible() || window.is_active() {
+            return;
+        }
+        let (width, height) = (window.width(), window.height());
+        if width > 0 && height > 0 {
+            window.set_default_size(width, height);
+        }
+        window.set_visible(false);
+        WidgetExt::display(&window).flush();
+        let weak = window.downgrade();
+        let source = glib::timeout_add_local_once(Duration::from_millis(20), move || {
+            PENDING_RAISE.with(|slot| {
+                slot.borrow_mut().take();
+            });
+            if let Some(window) = weak.upgrade() {
+                window.present();
+            }
+        });
+        PENDING_RAISE.with(|slot| {
+            *slot.borrow_mut() = Some(source);
+        });
+    };
+
+    if token.is_none() {
+        remap();
+    } else {
+        let source = glib::timeout_add_local_once(Duration::from_millis(80), remap);
+        PENDING_RAISE.with(|slot| {
+            *slot.borrow_mut() = Some(source);
+        });
+    }
+}
 
 enum Command {
     Open(Option<String>),
@@ -214,11 +293,7 @@ impl Controller {
     pub fn open(&self, token: Option<&str>) {
         if let Some(window) = self.window.upgrade() {
             self.hidden.set(false);
-            if let Some(token) = token {
-                window.set_startup_id(token);
-            }
-            window.present();
-            window.unminimize();
+            present_window(&window, token);
         }
     }
 
@@ -234,6 +309,7 @@ impl Controller {
         let Some(window) = self.window.upgrade() else {
             return false;
         };
+        cancel_pending_present();
         self.hidden.set(true);
         window.set_visible(false);
         true
