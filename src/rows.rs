@@ -320,11 +320,18 @@ pub fn messages(counts: &Rc<Counts>, handler: &media::Handler) -> gtk::SignalLis
                 };
                 let guid = &data.message.guid;
                 let target = guid.to_variant();
+                let remove_target = (data.send_state.is_none())
+                    .then_some(data.my_reaction)
+                    .flatten()
+                    .map(|kind| (guid.as_str(), kind.name()).to_variant());
                 let text = &data.message.text;
                 let url = crate::links::first(text);
                 let address = url.as_ref().map(|url| url.as_str().to_variant());
                 let text_target = text.to_variant();
                 let mut entries = Vec::new();
+                if let Some(remove_target) = &remove_target {
+                    entries.push(("Remove Reaction", "message.react", Some(remove_target)));
+                }
                 if !text.trim().is_empty()
                     && (url.is_none() || reqwest::Url::parse(text.trim()).ok() != url)
                 {
@@ -365,6 +372,7 @@ pub fn messages(counts: &Rc<Counts>, handler: &media::Handler) -> gtk::SignalLis
             surface.add_css_class("thread-content-inset");
             surface.set_child(Some(&lane));
             let reactions = ReactionStack::new();
+            crate::context_menu::bind_pointer(&menu, &reactions, gtk::PropagationPhase::Capture);
             surface.add_overlay(&reactions);
             surface.connect_get_child_position({
                 let (bubble, files) = (bubble.downgrade(), files.downgrade());

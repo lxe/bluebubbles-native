@@ -190,7 +190,7 @@ def exercise(binary, output, baseline, large):
         if not baseline:
             assert restored, "The restored chat moved or showed a different scroll position"
             image(display, win, 0, 0, 1024, 700).save(output / "jump-latest.png")
-            xdotool("mousemove", "--window", win, 989, 603, "click", "--delay", 0, 1)
+            xdotool("mousemove", "--window", win, 673, 602, "click", "--delay", 0, 1)
             try:
                 poll(lambda: same_viewport(reading_area(), at_bottom), timeout=2)
             except AssertionError:

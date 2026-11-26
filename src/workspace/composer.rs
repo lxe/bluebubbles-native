@@ -105,7 +105,8 @@ impl Workspace {
             layout.set_width((width - 12).max(80) * gtk::pango::SCALE);
             (layout.pixel_size().1 + 13).clamp(28, 118)
         } else {
-            (layout.pixel_size().1 + self.editor.top_margin() + self.editor.bottom_margin()).max(28)
+            let single = self.editor.create_pango_layout(Some("Ag"));
+            (single.pixel_size().1 + self.editor.top_margin() + self.editor.bottom_margin()).max(28)
         };
         if self.editor_scroll.height_request() != height {
             self.editor_scroll.set_height_request(height);

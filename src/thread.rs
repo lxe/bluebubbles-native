@@ -129,6 +129,16 @@ pub fn quote(message: &Message, chat: &Conversation) -> Quote {
     }
 }
 
+pub fn should_show_time(sent_at: i64, previous_sent_at: Option<i64>) -> bool {
+    let Some(date) = local_date(sent_at) else {
+        return false;
+    };
+    let previous = previous_sent_at.and_then(local_date);
+    previous.is_none_or(|previous| {
+        date.to_unix() - previous.to_unix() >= 30 * 60 || !same_day(&date, &previous)
+    })
+}
+
 pub fn timeline(messages: &[Message], chat: &Conversation) -> Vec<MessageRow> {
     let by_guid: HashMap<_, _> = messages
         .iter()

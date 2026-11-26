@@ -478,10 +478,10 @@ impl Workspace {
         timeline_area.add_overlay(&load_more);
         let jump_latest = Icon::JumpLatest.button("Jump to latest messages");
         jump_latest.add_css_class("jump-latest");
-        jump_latest.set_halign(gtk::Align::End);
+        jump_latest.add_css_class("circular");
+        jump_latest.set_halign(gtk::Align::Center);
         jump_latest.set_valign(gtk::Align::End);
-        jump_latest.set_margin_end(17);
-        jump_latest.set_margin_bottom(10);
+        jump_latest.set_margin_bottom(12);
         jump_latest.set_visible(false);
         timeline_area.add_overlay(&jump_latest);
         thread_stack.add_named(&timeline_area, Some("timeline"));

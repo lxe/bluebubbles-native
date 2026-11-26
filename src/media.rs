@@ -19,6 +19,7 @@ pub type Handler = Rc<RefCell<Option<Box<dyn Fn(Request)>>>>;
 pub enum Request {
     Save(Attachment),
     Open(Attachment, Option<gdk::Texture>),
+    CachedThumbnail(Attachment, InlinePreview),
     Thumbnail(Attachment, InlinePreview),
     Copy(Attachment),
     Link(Url, LinkPreviewTarget),
@@ -277,12 +278,25 @@ fn media_bubble(
         let picture = picture.downgrade();
         move |_| emit(&handler, open_request(&attachment, Some(&picture)))
     });
+    emit(
+        handler,
+        Request::CachedThumbnail(
+            attachment.clone(),
+            InlinePreview {
+                picture: picture.downgrade(),
+                placeholder: placeholder.downgrade(),
+            },
+        ),
+    );
     card.connect_map({
         let handler = handler.clone();
         let attachment = attachment.clone();
         let picture = picture.downgrade();
         let requested = Cell::new(false);
         move |_| {
+            if picture.upgrade().is_some_and(|p| p.paintable().is_some()) {
+                return;
+            }
             if !requested.replace(true) {
                 placeholder.set_visible_child_name("loading");
                 emit(
@@ -341,25 +355,47 @@ fn media_context(
         actions.add_action(&action);
         items.push((label, detailed_action, None));
     }
+    let root = gtk::Overlay::new();
+    root.set_child(Some(target));
+    root.insert_action_group("media", Some(&actions));
+    let popover = crate::context_menu::attach(&root, target);
     if let Some(menu) = message_menu {
         let menu = menu.downgrade();
+        let source = root.downgrade();
+        let media_popover = popover.downgrade();
         let action = gio::SimpleAction::new("message", None);
         action.connect_activate(move |_, _| {
             let menu = menu.clone();
+            let position = source
+                .upgrade()
+                .zip(menu.upgrade().and_then(|menu| menu.parent()))
+                .and_then(|(source, parent)| {
+                    let anchor = media_popover
+                        .upgrade()
+                        .and_then(|popover| {
+                            let (has_point, rect) = popover.pointing_to();
+                            has_point.then(|| {
+                                gtk::graphene::Point::new(rect.x() as f32, rect.y() as f32)
+                            })
+                        })
+                        .unwrap_or_else(|| {
+                            gtk::graphene::Point::new(
+                                source.width() as f32 / 2.0,
+                                source.height() as f32 / 2.0,
+                            )
+                        });
+                    source.compute_point(&parent, &anchor)
+                })
+                .map(|point| (f64::from(point.x()), f64::from(point.y())));
             glib::idle_add_local_once(move || {
                 if let Some(menu) = menu.upgrade() {
-                    crate::context_menu::popup(&menu, Some((12.0, 12.0)));
+                    crate::context_menu::popup(&menu, position);
                 }
             });
         });
         actions.add_action(&action);
         items.push(("Message Actions", "media.message", None));
     }
-
-    let root = gtk::Overlay::new();
-    root.set_child(Some(target));
-    root.insert_action_group("media", Some(&actions));
-    let popover = crate::context_menu::attach(&root, target);
     crate::context_menu::set_commands(&popover, &items);
     let keyboard = gtk::EventControllerKey::new();
     let popover = popover.downgrade();

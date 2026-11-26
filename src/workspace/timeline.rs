@@ -420,14 +420,23 @@ impl Workspace {
                                     thread.confirmations.get(&row.message.guid).copied();
                             }
                         }
+                        let mut last_sent_at = rows
+                            .last()
+                            .map(|row| row.message.sent_at)
+                            .filter(|&t| t > 0);
                         for pending in &thread.pending_sends {
                             let service = pending.message.service.unwrap_or_else(|| chat.service());
+                            let show_time =
+                                thread::should_show_time(pending.message.sent_at, last_sent_at);
+                            if pending.message.sent_at > 0 {
+                                last_sent_at = Some(pending.message.sent_at);
+                            }
                             rows.push(MessageRow {
                                 message: pending.message.clone(),
                                 service,
                                 group: chat.is_group(),
-                                starts_group: false,
-                                show_time: false,
+                                starts_group: show_time,
+                                show_time,
                                 sender: None,
                                 quote: pending.job.reply.as_ref().map(|reply| reply.quote.clone()),
                                 reactions: Vec::new(),
@@ -480,10 +489,12 @@ impl Workspace {
             let _profile = crate::profile::span("thread-bind-rows-ui");
             rows::replace_changed(&view.store, rows);
         }
+        self.thread_stack.set_visible_child_name("timeline");
         if scroll_latest || view.follow_latest.get() {
             view.scroll_latest();
+        } else {
+            view.queue_scroll_bounds();
         }
-        self.thread_stack.set_visible_child_name("timeline");
         self.update_load_more();
         self.update_composer();
     }
@@ -501,7 +512,7 @@ impl Workspace {
         let timeline_visible =
             self.thread_stack.visible_child_name().as_deref() == Some("timeline");
         self.jump_latest
-            .set_visible(timeline_visible && view.bottom_gap() > 48.0);
+            .set_visible(timeline_visible && !view.follow_latest.get() && view.bottom_gap() > 48.0);
         let show = state.server.is_some()
             && !view.follow_latest.get()
             && thread.is_some_and(|thread| thread.has_older)

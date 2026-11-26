@@ -207,9 +207,10 @@ impl ReactionStack {
             (badges.len() > 1).then_some(state.hovered.get() || state.pinned.get()),
         )]);
         let interactive = badges.len() > 1;
+        let has_own = badges.iter().any(|badge| badge.own_count > 0);
         self.set_cursor_from_name(interactive.then_some("pointer"));
         self.set_focusable(interactive);
-        self.set_can_target(interactive);
+        self.set_can_target(interactive || has_own);
         self.set_visible(!badges.is_empty());
     }
 

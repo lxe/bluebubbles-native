@@ -73,10 +73,33 @@ impl Workspace {
         });
     }
 
+    fn cached_preview(&self, guid: &str) -> Option<gdk::Texture> {
+        let mut state = self.state.borrow_mut();
+        state
+            .previews
+            .iter()
+            .position(|(id, _)| id == guid)
+            .and_then(|index| state.previews.remove(index))
+            .map(|entry| {
+                let texture = entry.1.clone();
+                state.previews.push_back(entry);
+                texture
+            })
+    }
+
     pub(super) fn media_request(self: &Rc<Self>, request: media::Request) {
         match request {
             media::Request::Save(attachment) => self.download(attachment),
+            media::Request::CachedThumbnail(attachment, slot) => {
+                if let Some(texture) = self.cached_preview(&attachment.guid) {
+                    slot.finish(Some(&texture));
+                }
+            }
             media::Request::Thumbnail(attachment, slot) => {
+                if let Some(texture) = self.cached_preview(&attachment.guid) {
+                    slot.finish(Some(&texture));
+                    return;
+                }
                 self.deferred_previews.borrow_mut().push((attachment, slot));
                 self.schedule_previews();
             }
@@ -139,7 +162,7 @@ impl Workspace {
                                     && i64::from(texture.width()) * i64::from(texture.height())
                                         <= 640 * 640
                                 {
-                                    if state.previews.len() >= 32 {
+                                    if state.previews.len() >= 96 {
                                         state.previews.pop_front();
                                     }
                                     state.previews.push_back((guid.clone(), texture.clone()));
@@ -286,7 +309,7 @@ impl Workspace {
                     },
                 );
             }
-            media::Request::Save(_) => unreachable!(),
+            media::Request::Save(_) | media::Request::CachedThumbnail(_, _) => unreachable!(),
         }
     }
 
