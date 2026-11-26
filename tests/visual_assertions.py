@@ -183,7 +183,7 @@ pinned_sidebar = [row for row in ocr("pinned") if int(row["left"]) < 320]
 assert int(word(pinned_sidebar, "Bike")["top"]) < int(word(pinned_sidebar, "Maya")["top"])
 assert all(item["text"] != "Bike" for item in ocr("archived-sidebar"))
 sentence(ocr("archive"), "Bike Workshop")
-sentence(ocr("restored"), "No archived")
+assert "No archived chats" in menu_words("restored", (350, 260, 860, 440))
 sentence(ocr("narrow-thread"), "Maya Chen")
 sentence(ocr("narrow-reopened"), "Maya Chen")
 assert SELECTED not in pixels(screen("narrow").crop((10, 55, 420, 250)))

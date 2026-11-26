@@ -5,7 +5,7 @@ use adw::subclass::prelude::ObjectSubclassIsExt;
 use gtk::{glib, graphene, gsk};
 
 mod imp {
-    use std::cell::{Cell, RefCell};
+    use std::cell::Cell;
     use std::time::Instant;
 
     use adw::prelude::*;
@@ -16,8 +16,6 @@ mod imp {
     #[derive(Default)]
     pub struct BubbleLane {
         pub(super) confirmation: Cell<Option<Instant>>,
-        pub(super) animation: RefCell<Option<adw::TimedAnimation>>,
-        pub(super) progress: Cell<f32>,
     }
 
     #[glib::object_subclass]
@@ -29,41 +27,7 @@ mod imp {
 
     impl ObjectImpl for BubbleLane {}
     impl BinImpl for BubbleLane {}
-
-    impl WidgetImpl for BubbleLane {
-        fn map(&self) {
-            self.parent_map();
-            self.obj().play_confirmation();
-        }
-
-        fn snapshot(&self, snapshot: &gtk::Snapshot) {
-            let progress = self.progress.get();
-            if self.animation.borrow().is_none() || progress >= 1.0 {
-                self.parent_snapshot(snapshot);
-                return;
-            }
-            let widget = self.obj();
-            let Some(child) = widget.child() else { return };
-            let Some(bounds) = child.compute_bounds(&*widget) else {
-                return;
-            };
-            let origin =
-                gtk::graphene::Point::new(bounds.x() + bounds.width() * 0.5, bounds.height() * 0.5);
-            // Small overshoot followed by a cubic return. Layout and scroll position stay fixed.
-            let scale = if progress < 0.62 {
-                let phase = progress / 0.62;
-                0.968 + 0.054 * (1.0 - (1.0 - phase).powi(3))
-            } else {
-                1.0 + 0.022 * ((1.0 - progress) / 0.38).powi(2)
-            };
-            snapshot.save();
-            snapshot.translate(&origin);
-            snapshot.scale(scale, scale);
-            snapshot.translate(&gtk::graphene::Point::new(-origin.x(), -origin.y()));
-            self.parent_snapshot(snapshot);
-            snapshot.restore();
-        }
-    }
+    impl WidgetImpl for BubbleLane {}
 
     #[derive(Default)]
     pub struct BubbleLayout;
@@ -138,39 +102,11 @@ impl BubbleLane {
         if state.confirmation.replace(at) == at {
             return;
         }
-        if let Some(animation) = state.animation.take() {
-            animation.pause();
-        }
-        state.progress.set(1.0);
-        if self.is_mapped() {
-            self.play_confirmation();
-        }
-    }
-
-    fn play_confirmation(&self) {
-        let state = self.imp();
-        if state.animation.borrow().is_some()
-            || state
-                .confirmation
-                .get()
-                .is_none_or(|at| at.elapsed() > Duration::from_millis(160))
-            || !crate::loading::animations_enabled()
+        if at.is_some_and(|at| at.elapsed() <= Duration::from_millis(160))
+            && crate::loading::animations_enabled()
         {
-            return;
+            let _profile = crate::profile::span("send-confirm-motion");
         }
-        let _profile = crate::profile::span("send-confirm-motion");
-        state.progress.set(0.0);
-        let lane = self.downgrade();
-        let target = adw::CallbackAnimationTarget::new(move |value| {
-            if let Some(lane) = lane.upgrade() {
-                lane.imp().progress.set(value as f32);
-                lane.queue_draw();
-            }
-        });
-        let animation = adw::TimedAnimation::new(self, 0.0, 1.0, 230, target);
-        animation.set_easing(adw::Easing::Linear);
-        state.animation.replace(Some(animation.clone()));
-        animation.play();
     }
 }
 

@@ -46,6 +46,7 @@ struct ConversationRowWidgets {
 }
 
 struct MessageRowWidgets {
+    item: glib::WeakRef<gtk::ListItem>,
     timestamp: gtk::Label,
     lane: BubbleLane,
     reactions: ReactionStack,
@@ -61,6 +62,28 @@ struct MessageRowWidgets {
     files: gtk::Box,
     send_status: gtk::Label,
     menu: gtk::Popover,
+}
+
+#[derive(Clone)]
+pub struct MessageUpdater {
+    rows: Rc<RefCell<HashMap<usize, MessageRowWidgets>>>,
+    handler: media::Handler,
+}
+
+impl MessageUpdater {
+    pub fn rebind(&self, position: u32, data: &MessageRow) {
+        let rows = self.rows.borrow();
+        for widgets in rows.values() {
+            if widgets
+                .item
+                .upgrade()
+                .is_some_and(|item| item.position() == position && item.item().is_some())
+            {
+                bind_message(widgets, data, &self.handler);
+                break;
+            }
+        }
+    }
 }
 
 pub fn conversations(
@@ -245,9 +268,16 @@ pub fn open_focused_chat_menu(list: &gtk::ListView) -> bool {
     true
 }
 
-pub fn messages(counts: &Rc<Counts>, handler: &media::Handler) -> gtk::SignalListItemFactory {
+pub fn messages(
+    counts: &Rc<Counts>,
+    handler: &media::Handler,
+) -> (gtk::SignalListItemFactory, MessageUpdater) {
     let factory = gtk::SignalListItemFactory::new();
     let rows = Rc::new(RefCell::new(HashMap::<usize, MessageRowWidgets>::new()));
+    let updater = MessageUpdater {
+        rows: rows.clone(),
+        handler: handler.clone(),
+    };
     factory.connect_setup({
         let counts = counts.clone();
         let rows = rows.clone();
@@ -397,6 +427,7 @@ pub fn messages(counts: &Rc<Counts>, handler: &media::Handler) -> gtk::SignalLis
             rows.borrow_mut().insert(
                 item.as_ptr() as usize,
                 MessageRowWidgets {
+                    item: item.downgrade(),
                     timestamp,
                     lane,
                     reactions,
@@ -442,13 +473,14 @@ pub fn messages(counts: &Rc<Counts>, handler: &media::Handler) -> gtk::SignalLis
         move |_, item| {
             if let Some(widgets) = rows.borrow().get(&(item.as_ptr() as usize)) {
                 widgets.menu.popdown();
+                widgets.bubble.reset_transitions();
             }
         }
     });
     factory.connect_teardown(move |_, item| {
         rows.borrow_mut().remove(&(item.as_ptr() as usize));
     });
-    factory
+    (factory, updater)
 }
 
 fn bind_message(widgets: &MessageRowWidgets, data: &MessageRow, handler: &media::Handler) {

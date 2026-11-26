@@ -13,7 +13,10 @@ mod imp {
     pub struct Squircle {
         path: RefCell<Option<(i32, i32, gsk::Path)>>,
         pub(super) shimmer: RefCell<Option<adw::TimedAnimation>>,
+        pub(super) shimmer_fade: RefCell<Option<adw::TimedAnimation>>,
+        pub(super) settle_timer: RefCell<Option<glib::SourceId>>,
         pub(super) progress: Cell<f32>,
+        pub(super) shimmer_alpha: Cell<f32>,
     }
 
     #[glib::object_subclass]
@@ -66,13 +69,14 @@ mod imp {
                     snapshot.pop();
                 }
                 let progress = self.progress.get();
-                if widget.has_css_class("pending-bubble") && 0.0 < progress && progress < 1.0 {
+                let shimmer_alpha = self.shimmer_alpha.get();
+                if shimmer_alpha > 0.001 && 0.0 < progress && progress < 1.0 {
                     let width = width as f32;
                     let height = height as f32;
                     let band = (width * 0.35).clamp(32.0, 92.0);
                     let x = (width + band * 2.0) * progress - band;
                     let clear = gdk::RGBA::new(0.70, 0.86, 1.0, 0.0);
-                    let highlight = gdk::RGBA::new(0.70, 0.86, 1.0, 0.14);
+                    let highlight = gdk::RGBA::new(0.70, 0.86, 1.0, 0.14 * shimmer_alpha);
                     snapshot.push_fill(path, gsk::FillRule::Winding);
                     snapshot.append_linear_gradient(
                         &gtk::graphene::Rect::new(0.0, 0.0, width, height),
@@ -113,18 +117,94 @@ impl Squircle {
     }
 
     pub fn set_pending(&self, pending: bool) {
+        let was_pending = self.has_css_class("pending-bubble");
         if pending {
+            self.cancel_settle();
             self.add_css_class("pending-bubble");
+            self.imp().shimmer_alpha.set(1.0);
             if self.is_mapped() {
                 self.start_shimmer();
             }
+            return;
+        }
+        if was_pending && self.is_mapped() && crate::loading::animations_enabled() {
+            self.add_css_class("settling-bubble");
+            self.remove_css_class("pending-bubble");
+            self.fade_out_shimmer();
+            if let Some(source) = self.imp().settle_timer.borrow_mut().take() {
+                source.remove();
+            }
+            let weak = self.downgrade();
+            let source =
+                glib::timeout_add_local_once(std::time::Duration::from_millis(260), move || {
+                    if let Some(widget) = weak.upgrade() {
+                        widget.imp().settle_timer.borrow_mut().take();
+                        widget.remove_css_class("settling-bubble");
+                    }
+                });
+            self.imp().settle_timer.replace(Some(source));
         } else {
             self.remove_css_class("pending-bubble");
-            if let Some(shimmer) = self.imp().shimmer.take() {
-                shimmer.pause();
-            }
-            self.imp().progress.set(0.0);
+            self.stop_shimmer_immediately();
         }
+    }
+
+    pub fn reset_transitions(&self) {
+        self.cancel_settle();
+        self.stop_shimmer_immediately();
+    }
+
+    fn cancel_settle(&self) {
+        if let Some(source) = self.imp().settle_timer.borrow_mut().take() {
+            source.remove();
+        }
+        if let Some(fade) = self.imp().shimmer_fade.take() {
+            fade.pause();
+        }
+        self.remove_css_class("settling-bubble");
+    }
+
+    fn stop_shimmer_immediately(&self) {
+        if let Some(shimmer) = self.imp().shimmer.take() {
+            shimmer.pause();
+        }
+        if let Some(fade) = self.imp().shimmer_fade.take() {
+            fade.pause();
+        }
+        self.imp().progress.set(0.0);
+        self.imp().shimmer_alpha.set(0.0);
+    }
+
+    fn fade_out_shimmer(&self) {
+        if let Some(fade) = self.imp().shimmer_fade.take() {
+            fade.pause();
+        }
+        let progress = self.imp().progress.get();
+        let alpha = self.imp().shimmer_alpha.get();
+        if alpha <= 0.001 || !(0.0 < progress && progress < 1.0) {
+            self.stop_shimmer_immediately();
+            return;
+        }
+        let widget = self.downgrade();
+        let target = adw::CallbackAnimationTarget::new(move |value| {
+            if let Some(widget) = widget.upgrade() {
+                widget.imp().shimmer_alpha.set(value as f32);
+                widget.queue_draw();
+            }
+        });
+        let fade = adw::TimedAnimation::new(self, f64::from(alpha), 0.0, 180, target);
+        fade.set_easing(adw::Easing::EaseOutCubic);
+        let weak = self.downgrade();
+        fade.connect_done(move |_| {
+            if let Some(widget) = weak.upgrade()
+                && !widget.has_css_class("pending-bubble")
+            {
+                widget.stop_shimmer_immediately();
+                widget.queue_draw();
+            }
+        });
+        self.imp().shimmer_fade.replace(Some(fade.clone()));
+        fade.play();
     }
 
     fn start_shimmer(&self) {
@@ -134,6 +214,7 @@ impl Squircle {
         {
             return;
         }
+        self.imp().shimmer_alpha.set(1.0);
         let widget = self.downgrade();
         let target = adw::CallbackAnimationTarget::new(move |value| {
             if let Some(widget) = widget.upgrade() {

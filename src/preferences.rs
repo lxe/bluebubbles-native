@@ -112,11 +112,14 @@ impl Preferences {
             .centering_policy(adw::CenteringPolicy::Strict)
             .title_widget(&adw::WindowTitle::new("Preferences", ""))
             .build();
-        let sidebar = adw::ToolbarView::new();
+        let sidebar_divider = gtk::Separator::new(gtk::Orientation::Horizontal);
+        sidebar_divider.add_css_class("preferences-header-divider");
+        let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 0);
         sidebar.set_width_request(SIDEBAR_WIDTH);
         sidebar.add_css_class("preferences-sidebar");
-        sidebar.add_top_bar(&sidebar_header);
-        sidebar.set_content(Some(&nav));
+        sidebar.append(&sidebar_header);
+        sidebar.append(&sidebar_divider);
+        sidebar.append(&nav);
 
         let pane_title = adw::WindowTitle::new("Server", "");
         let content_header = adw::HeaderBar::builder()
@@ -125,16 +128,24 @@ impl Preferences {
             .centering_policy(adw::CenteringPolicy::Strict)
             .title_widget(&pane_title)
             .build();
-        let content = adw::ToolbarView::new();
+        let content_divider = gtk::Separator::new(gtk::Orientation::Horizontal);
+        content_divider.add_css_class("preferences-header-divider");
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
         content.set_hexpand(true);
         content.add_css_class("preferences-content");
-        content.add_top_bar(&content_header);
-        content.set_content(Some(&stack));
+        content.append(&content_header);
+        content.append(&content_divider);
+        content.append(&stack);
+
+        let header_height = gtk::SizeGroup::new(gtk::SizeGroupMode::Vertical);
+        header_height.add_widget(&sidebar_header);
+        header_height.add_widget(&content_header);
 
         let divider = gtk::Separator::new(gtk::Orientation::Vertical);
         divider.add_css_class("preferences-divider");
 
         let split = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        split.add_css_class("preferences-split");
         split.append(&sidebar);
         split.append(&divider);
         split.append(&content);

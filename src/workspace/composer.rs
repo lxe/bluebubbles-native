@@ -12,8 +12,7 @@ use crate::model::{Conversation, Message, MessagePointer, Service, TapbackKind};
 use crate::thread::{self, MessageRow, SendState};
 
 use super::{
-    Mode, ReplyDraft, Workspace, background, boxed, preview_background, send_background,
-    timeline::Fetch,
+    Mode, ReplyDraft, Workspace, background, preview_background, send_background, timeline::Fetch,
 };
 
 #[derive(Clone)]
@@ -710,7 +709,7 @@ impl Workspace {
         };
         if row.my_reaction != reaction {
             row.set_my_reaction(reaction);
-            self.view().store.splice(position, 1, &boxed(vec![row]));
+            self.view().update_row(position, row);
         }
     }
 

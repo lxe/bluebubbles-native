@@ -29,6 +29,8 @@ run_gui() {
     tests/visual-smoke.sh
     echo "==> Thread features"
     tests/thread-features.sh
+    echo "==> Smooth send confirmation"
+    run_xvfb python3 tests/send_smooth.py
     echo "==> Clipboard media paste"
     run_xvfb python3 tests/clipboard_paste.py
     echo "==> Realtime & notifications"

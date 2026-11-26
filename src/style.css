@@ -183,6 +183,11 @@
     color: mix(@bb_outgoing_sms, @bb_canvas, 0.48);
 }
 
+.bb-window bb-squircle.thread-bubble.outgoing.settling-bubble,
+.bb-window bb-squircle.thread-bubble.outgoing.settling-bubble .message {
+    transition: color 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .bb-window .pending-bubble .message {
     color: @bb_muted;
 }
@@ -392,6 +397,11 @@
     opacity: 0.65;
 }
 
+.bb-window dialog.bb-preferences sheet,
+.bb-window .preferences-split {
+    background-color: @bb_header;
+}
+
 .bb-window .preferences-sidebar,
 .bb-window .preferences-sidebar list.preferences-nav {
     background-color: @bb_sidebar;
@@ -400,17 +410,24 @@
 
 .bb-window .preferences-sidebar headerbar {
     background-color: @bb_sidebar;
-    border-bottom: 1px solid @bb_divider;
+    border-bottom: 0;
+    box-shadow: none;
 }
 
 .bb-window .preferences-content headerbar {
     background-color: @bb_header;
-    border-bottom: 1px solid @bb_divider;
+    border-bottom: 0;
+    box-shadow: none;
 }
 
 .bb-window separator.preferences-divider {
     background-color: @bb_divider;
     min-width: 1px;
+}
+
+.bb-window separator.preferences-header-divider {
+    background-color: @bb_divider;
+    min-height: 1px;
 }
 
 .bb-window list.preferences-nav {
@@ -457,10 +474,17 @@
 }
 
 .bb-window .preferences-content,
+.bb-window .preferences-content stack,
 .bb-window .preferences-content scrolledwindow,
 .bb-window .preferences-content viewport {
     background-color: @bb_header;
     color: @bb_text;
+}
+
+.bb-window .preferences-content scrolledwindow > undershoot,
+.bb-window .preferences-content scrolledwindow > overshoot {
+    background: none;
+    box-shadow: none;
 }
 
 .bb-window .preferences-content .boxed-list {

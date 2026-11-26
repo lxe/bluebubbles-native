@@ -8,9 +8,9 @@ use gtk::{gdk, glib};
 use crate::api::PAGE_SIZE;
 use crate::cache::Cache;
 use crate::model::{Conversation, Message, TapbackKind};
+use crate::sample;
 use crate::thread::{self, MessageRow};
 use crate::timeline_view::TimelineView;
-use crate::{rows, sample};
 
 use super::{
     ACTIVE_SYNC_INTERVAL, Draft, MEMORY_THREAD_LIMIT, Mode, TIMELINE_VIEW_LIMIT, Workspace,
@@ -485,12 +485,12 @@ impl Workspace {
         }
 
         self.cancel_loading_indicator();
-        {
+        let structural = {
             let _profile = crate::profile::span("thread-bind-rows-ui");
-            rows::replace_changed(&view.store, rows);
-        }
+            view.replace_rows(rows)
+        };
         self.thread_stack.set_visible_child_name("timeline");
-        if scroll_latest || view.follow_latest.get() {
+        if scroll_latest || (view.follow_latest.get() && (structural || view.bottom_gap() > 0.5)) {
             view.scroll_latest();
         } else {
             view.queue_scroll_bounds();
