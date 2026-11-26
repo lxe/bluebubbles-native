@@ -223,7 +223,7 @@ click 28 30
 xdotool mousemove --window "$window" 120 130
 sleep .45
 snap narrow
-click 380 30
+click 336 30
 xdotool mousemove --window "$window" 120 130
 sleep .2
 snap narrow-syncing

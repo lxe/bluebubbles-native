@@ -9,7 +9,7 @@ A fast, lightweight, native Linux desktop client for [BlueBubbles Server](https:
 - **Native performance & small footprint** — compiled Rust + GTK 4 (~14 MB binary, no Electron runtime), with virtualized lists for instant scrolling and thread switching.
 - **Offline-first caching** — opens cached conversations immediately while syncing in the background; scroll to the top of any thread to load older history.
 - **Live messages & desktop notifications** — Engine.IO / Socket.IO streaming with automatic reconnect, quiet REST catch-up, and clickable native notifications.
-- **Rich messaging** — multiline composer, file picker, drag-and-drop, and clipboard paste for images, videos, and files, inline image/video previews with an in-app lightbox viewer, clickable inline links, rich link cards, Tapback reactions, and threaded replies *(Tapbacks and replies require the BlueBubbles Private API)*.
+- **Rich messaging** — start new 1-on-1 or group conversations with a searchable contact picker, multiline composer, file picker, drag-and-drop, and clipboard paste for images, videos, and files, inline image/video previews with an in-app lightbox viewer, clickable inline links, rich link cards, Tapback reactions, and threaded replies *(Tapbacks, replies, and creating new chats require the BlueBubbles Private API)*.
 - **Adaptive GNOME layout** — resizable sidebar at desktop widths that collapses cleanly into a single-column navigation view on narrow screens.
 - **Themes, text scaling & system tray** — 7 built-in dark and light colorways (plus Follow System and high-contrast support), live text scaling (`80%–160%`), and optional StatusNotifierItem minimize/close-to-tray behavior.
 
@@ -53,6 +53,7 @@ install -Dm644 data/co.lxe.BlueBubblesNative.svg ~/.local/share/icons/hicolor/sc
 
 | Shortcut | Action |
 | --- | --- |
+| `Ctrl+N` | Start a new message |
 | `Ctrl+F` | Focus conversation search |
 | `Ctrl+,` | Open Preferences |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Increase / decrease / reset text size |

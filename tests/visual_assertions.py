@@ -74,7 +74,7 @@ def toolbar_bounds(image, right_edge, narrow=False):
             controls[-1][1] = x
         else:
             controls.append([x, x])
-    assert len(controls) == (4 if narrow else 3), controls
+    assert len(controls) == (5 if narrow else 4), controls
     frames = [bounds(image, (left, 8, right + 1, 52), SURFACE if index == 1 else CONTROL)
               for index, (left, right) in enumerate(controls)]
     assert all(top == 13 and bottom == 46 for _, top, _, bottom in frames), frames
@@ -107,7 +107,7 @@ hover = screen("hover")
 thread = screen("thread")
 assert SELECTED not in pixels(hover.crop((175, 60, 300, 110)))
 selection = bounds(thread, (0, 54, 320, 116), SELECTED)
-search = bounds(thread, (48, 5, 265, 48), SURFACE)
+search = bounds(thread, (48, 5, 232, 48), SURFACE)
 assert abs(search[1] - 13) <= 3 and search[3] - search[1] >= 25, search
 wide = toolbar_bounds(thread, 321)
 syncing = screen("toolbar-syncing")

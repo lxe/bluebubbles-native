@@ -9,6 +9,7 @@ mod links;
 mod loading;
 mod media;
 mod model;
+mod new_message;
 mod organization;
 mod preferences;
 mod profile;

@@ -212,7 +212,7 @@ def exercise(binary, output, baseline, large):
             app_log = output / "app.log"
             completed = app_log.read_text().count("sidebar-sync-worker")
             before_refresh = len(events("chats"))
-            xdotool("mousemove", "--window", win, 295, 30, "click", "--delay", 0, 1)
+            xdotool("mousemove", "--window", win, 254, 30, "click", "--delay", 0, 1)
             poll(lambda: len(events("chats")) > before_refresh)
             xdotool("key", "ctrl+comma")
             time.sleep(.12)

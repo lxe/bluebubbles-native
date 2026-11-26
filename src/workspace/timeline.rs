@@ -98,8 +98,11 @@ impl Workspace {
         }
         {
             let mut state = self.state.borrow_mut();
+            let was_composing = state.composing_new;
+            state.composing_new = false;
+            state.previous_active = None;
             if let Some(previous) = state.active.as_ref() {
-                if previous.guid == conversation.guid {
+                if previous.guid == conversation.guid && !was_composing {
                     drop(state);
                     self.layout.show_thread();
                     self.update_active_highlight();

@@ -10,8 +10,8 @@ use serde_json::{Value, json};
 
 use crate::cache::{AVATAR_BYTE_LIMIT, Cache, ConversationSnapshot};
 use crate::model::{
-    Attachment, Conversation, Message, MessagePointer, Participant, Service, Tapback, TapbackKind,
-    address_key, sort_conversations,
+    Attachment, ContactEntry, Conversation, Message, MessagePointer, Participant, Service, Tapback,
+    TapbackKind, address_key, sort_conversations,
 };
 
 pub const PAGE_SIZE: usize = 50;
@@ -70,6 +70,8 @@ struct ServerChat {
     handles: Option<Vec<Handle>>,
     last_message: Option<ServerMessage>,
     latest_message: Option<ServerMessage>,
+    #[serde(default)]
+    messages: Option<Vec<ServerMessage>>,
 }
 
 #[derive(Deserialize)]
@@ -357,7 +359,17 @@ impl BlueBubbles {
         })))
     }
 
+    pub fn contact_directory(&self) -> Result<Vec<ContactEntry>, String> {
+        let (_, directory) = self.fetch_contacts()?;
+        Ok(directory)
+    }
+
     fn contacts(&self) -> Result<HashMap<String, ContactInfo>, String> {
+        let (names, _) = self.fetch_contacts()?;
+        Ok(names)
+    }
+
+    fn fetch_contacts(&self) -> Result<(HashMap<String, ContactInfo>, Vec<ContactEntry>), String> {
         let contacts: Vec<Contact> = {
             let _profile = crate::profile::span("sidebar-contacts-request-worker");
             self.get(
@@ -368,6 +380,8 @@ impl BlueBubbles {
         let _profile = crate::profile::span("sidebar-contacts-process-worker");
         let cache = self.cache();
         let mut names = HashMap::new();
+        let mut directory = Vec::new();
+        let mut seen = HashSet::new();
         for contact in contacts {
             let name = contact
                 .display_name
@@ -379,6 +393,7 @@ impl BlueBubbles {
                         .collect::<Vec<_>>()
                         .join(" ")
                 });
+            let name = name.trim().to_owned();
             let avatar = contact.avatar.as_deref().and_then(|data| {
                 let encoded = data.split_once(',').map(|(_, data)| data).unwrap_or(data);
                 if encoded.len() > 2_000_000 {
@@ -386,10 +401,13 @@ impl BlueBubbles {
                 }
                 cache.avatar(&gtk::glib::base64_decode(encoded))
             });
-            if name.trim().is_empty() && avatar.is_none() {
+            if name.is_empty() && avatar.is_none() {
                 continue;
             }
-            let person = ContactInfo { name, avatar };
+            let person = ContactInfo {
+                name: name.clone(),
+                avatar: avatar.clone(),
+            };
             for address in contact
                 .phone_numbers
                 .into_iter()
@@ -402,11 +420,34 @@ impl BlueBubbles {
                     .or(address.phone)
                     .or(address.email)
                 {
-                    names.insert(address_key(&address), person.clone());
+                    let trimmed = address.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    let key = address_key(trimmed);
+                    names.insert(key.clone(), person.clone());
+                    if seen.insert(key) {
+                        directory.push(ContactEntry {
+                            name: if name.is_empty() {
+                                trimmed.to_owned()
+                            } else {
+                                name.clone()
+                            },
+                            address: trimmed.to_owned(),
+                            avatar: avatar.clone(),
+                        });
+                    }
                 }
             }
         }
-        Ok(names)
+        directory.sort_by(|left, right| {
+            left.name
+                .to_lowercase()
+                .cmp(&right.name.to_lowercase())
+                .then_with(|| left.address.cmp(&right.address))
+        });
+        cache.save_contacts(&directory);
+        Ok((names, directory))
     }
 
     pub fn messages(&self, guid: &str, offset: usize) -> Result<(Vec<Message>, usize), String> {
@@ -451,6 +492,77 @@ impl BlueBubbles {
         let _profile = crate::profile::span("thread-cache-write-worker");
         self.cache().merge_messages(guid, &results);
         Ok((results, count))
+    }
+
+    pub fn create_chat(
+        &self,
+        addresses: &[String],
+        message: &str,
+        service: Service,
+        temp_guid: &str,
+    ) -> Result<(Conversation, Option<Message>), String> {
+        let service_name = match service {
+            Service::IMessage => "iMessage",
+            Service::Sms | Service::Rcs => "SMS",
+        };
+        let method = if self.private_api {
+            "private-api"
+        } else {
+            "apple-script"
+        };
+        let mut body = json!({
+            "addresses": addresses,
+            "service": service_name,
+            "method": method,
+            "tempGuid": temp_guid,
+        });
+        if !message.is_empty() {
+            body["message"] = json!(message);
+        }
+        let mut response = self.write_response(
+            self.request(Method::POST, &["chat", "new"])
+                .timeout(Duration::from_secs(130))
+                .json(&body),
+        )?;
+        let data = response
+            .get_mut("data")
+            .map(Value::take)
+            .filter(|value| value.is_object())
+            .ok_or_else(|| {
+                "The server did not return the new conversation. Try refreshing conversations."
+                    .to_string()
+            })?;
+        let mut raw: ServerChat = serde_json::from_value(data)
+            .map_err(|_| "The server returned an unexpected new conversation.".to_string())?;
+        let initial_message = raw
+            .messages
+            .take()
+            .and_then(|mut list| list.pop())
+            .or_else(|| raw.latest_message.take())
+            .or_else(|| raw.last_message.take())
+            .and_then(ServerMessage::into_message);
+        let cached_contacts = self
+            .cache()
+            .contacts()
+            .into_iter()
+            .map(|entry| {
+                (
+                    address_key(&entry.address),
+                    ContactInfo {
+                        name: entry.name,
+                        avatar: entry.avatar,
+                    },
+                )
+            })
+            .collect();
+        let mut conversation = raw.into_conversation(&cached_contacts);
+        if let Some(ref sent) = initial_message {
+            conversation.update_preview(sent);
+            self.cache()
+                .merge_messages(&conversation.guid, std::slice::from_ref(sent));
+            self.cache().save_live_chat_head(&conversation, sent);
+        }
+        Ok((conversation, initial_message))
     }
 
     pub fn send_text(

@@ -642,3 +642,178 @@
 .bb-window .reaction-picker button.own {
     background: @bb_selected;
 }
+
+.bb-window .new-message-view {
+    background-color: @bb_canvas;
+    color: @bb_text;
+}
+
+.bb-window .new-message-bar-wrap {
+    background-color: @bb_header;
+}
+
+.bb-window .new-message-bar {
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.bb-window separator.new-message-divider {
+    background-color: @bb_divider;
+    min-height: 1px;
+}
+
+.bb-window .new-message-to {
+    padding-top: 7px;
+    font-weight: 600;
+    font-size: 13.5px;
+}
+
+.bb-window .new-message-entry {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    outline: 0;
+    min-height: 30px;
+    padding: 2px 0;
+    color: @bb_text;
+    caret-color: @bb_accent;
+}
+
+.bb-window .new-message-entry:focus-within {
+    box-shadow: none;
+    outline: 0;
+}
+
+.bb-window .recipient-chips > flowboxchild {
+    padding: 0;
+    margin: 0;
+    outline: 0;
+}
+
+.bb-window .recipient-chip {
+    background-color: @bb_selected;
+    color: @bb_text;
+    border-radius: 999px;
+    padding: 3px 4px 3px 5px;
+    border: 1px solid alpha(@bb_accent, 0.28);
+}
+
+.bb-window .recipient-chip-label {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.bb-window button.recipient-chip-remove {
+    min-width: 20px;
+    min-height: 20px;
+    padding: 0;
+    color: @bb_muted;
+}
+
+.bb-window button.recipient-chip-remove:hover {
+    background-color: alpha(@bb_text, 0.14);
+    color: @bb_text;
+}
+
+.bb-window .new-message-service {
+    margin-top: 1px;
+}
+
+.bb-window .new-message-service button.service-pill-item {
+    min-height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    background-color: alpha(@bb_text, 0.08);
+    color: @bb_muted;
+    box-shadow: none;
+}
+
+.bb-window .new-message-service button.service-pill-item:hover {
+    background-color: alpha(@bb_text, 0.13);
+    color: @bb_text;
+}
+
+.bb-window .new-message-service button.service-pill-item:checked {
+    background-color: @bb_selected;
+    color: @bb_text;
+}
+
+.bb-window .new-message-body {
+    padding-top: 14px;
+    padding-bottom: 18px;
+}
+
+.bb-window .existing-chat-banner {
+    background-color: @bb_surface;
+    border: 1px solid alpha(@bb_accent, 0.24);
+    border-radius: 14px;
+    padding: 8px 10px 8px 12px;
+    margin-bottom: 4px;
+}
+
+.bb-window .existing-chat-text {
+    font-size: 13.5px;
+    color: @bb_text;
+}
+
+.bb-window button.existing-chat-open {
+    min-height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    background-color: @bb_selected;
+    color: @bb_text;
+}
+
+.bb-window button.existing-chat-open:hover {
+    background-color: alpha(@bb_accent, 0.26);
+}
+
+.bb-window .new-message-section {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 6px;
+}
+
+.bb-window list.contact-picker-list {
+    background: transparent;
+}
+
+.bb-window list.contact-picker-list > row.contact-picker-row {
+    background: transparent;
+    border-radius: 12px;
+    padding: 0;
+    margin: 1px 0;
+}
+
+.bb-window list.contact-picker-list > row.contact-picker-row:hover {
+    background-color: alpha(@bb_text, 0.07);
+}
+
+.bb-window list.contact-picker-list > row.contact-picker-row:selected {
+    background-color: @bb_selected;
+    color: @bb_text;
+}
+
+.bb-window .contact-picker-row-content {
+    padding: 8px 10px;
+}
+
+.bb-window .contact-picker-address {
+    font-size: 12.5px;
+}
+
+.bb-window .contact-add-badge {
+    min-width: 34px;
+    min-height: 34px;
+    border-radius: 999px;
+    background-color: @bb_selected;
+    color: @bb_accent;
+}
+
+.bb-window .contact-picker-empty {
+    padding: 16px 8px;
+    font-size: 13.5px;
+}

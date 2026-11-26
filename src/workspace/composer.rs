@@ -8,12 +8,17 @@ use gtk::{gdk, gio, glib};
 use crate::api::BlueBubbles;
 use crate::icons::Icon;
 use crate::media as media_ui;
-use crate::model::{Conversation, Message, MessagePointer, Service, TapbackKind};
+use crate::model::{
+    Conversation, Message, MessagePointer, Participant, Service, TapbackKind, address_key,
+    sort_conversations,
+};
 use crate::thread::{self, MessageRow, SendState};
 
 use super::{
     Mode, ReplyDraft, Workspace, background, preview_background, send_background, timeline::Fetch,
 };
+
+const NEW_MESSAGE_TARGET: &str = "__new_message__";
 
 #[derive(Clone)]
 pub(super) enum SendPart {
@@ -118,8 +123,15 @@ impl Workspace {
 
     pub(super) fn composer_ready_guid(&self) -> Option<String> {
         let state = self.state.borrow();
-        if (state.server.is_some() || self.mode == Mode::Patterns) && !state.connecting {
-            state.active.as_ref().map(|active| active.guid.clone())
+        if (state.server.is_some() || self.mode == Mode::Patterns)
+            && !state.connecting
+            && !state.creating_chat
+        {
+            if state.composing_new {
+                Some(NEW_MESSAGE_TARGET.to_owned())
+            } else {
+                state.active.as_ref().map(|active| active.guid.clone())
+            }
         } else {
             None
         }
@@ -127,6 +139,9 @@ impl Workspace {
 
     pub(super) fn active_service(&self) -> Service {
         let state = self.state.borrow();
+        if state.composing_new {
+            return self.new_message.service();
+        }
         let Some(active) = state.active.as_ref() else {
             return Service::IMessage;
         };
@@ -148,8 +163,12 @@ impl Workspace {
     }
 
     pub(super) fn update_composer(&self) {
+        let (composing_new, has_files) = {
+            let state = self.state.borrow();
+            (state.composing_new, !state.files.is_empty())
+        };
         let ready = self.composer_ready_guid().is_some();
-        let has_files = !self.state.borrow().files.is_empty();
+        let has_target = !composing_new || self.new_message.has_recipients_or_valid_input();
         let service = self.active_service();
         if service.is_green() {
             self.compose.add_css_class("sms");
@@ -163,8 +182,9 @@ impl Workspace {
         self.editor.set_editable(ready);
         self.attach.set_sensitive(ready);
         self.pending.set_sensitive(ready);
-        self.send
-            .set_sensitive(ready && (!self.editor_text().trim().is_empty() || has_files));
+        self.send.set_sensitive(
+            ready && has_target && (!self.editor_text().trim().is_empty() || has_files),
+        );
     }
 
     pub(super) fn paste_clipboard_media(self: &Rc<Self>, fallback_text: bool) -> bool {
@@ -200,7 +220,7 @@ impl Workspace {
     }
 
     pub(super) fn pick_files(self: &Rc<Self>) {
-        let (Some(window), Some(guid)) = (self.window.upgrade(), self.active_guid()) else {
+        let (Some(window), Some(guid)) = (self.window.upgrade(), self.composer_ready_guid()) else {
             return;
         };
         let dialog = gtk::FileDialog::builder().title("Attach Files").build();
@@ -222,12 +242,15 @@ impl Workspace {
 
     pub(super) fn add_files(self: &Rc<Self>, guid: &str, files: impl Iterator<Item = PathBuf>) {
         let mut state = self.state.borrow_mut();
-        if state.connecting
-            || state
+        let matches_target = if guid == NEW_MESSAGE_TARGET {
+            state.composing_new
+        } else {
+            state
                 .active
                 .as_ref()
-                .is_none_or(|active| active.guid != guid)
-        {
+                .is_some_and(|active| active.guid == guid)
+        };
+        if state.connecting || !matches_target {
             return;
         }
         for path in files {
@@ -343,6 +366,10 @@ impl Workspace {
         if !self.send.is_sensitive() {
             return;
         }
+        if self.state.borrow().composing_new {
+            self.send_new_message();
+            return;
+        }
         let Some(guid) = self.active_guid() else {
             return;
         };
@@ -448,6 +475,227 @@ impl Workspace {
         self.render_thread(&guid, true);
         self.update_connection_controls();
         self.dispatch_send(guid, batch_id);
+    }
+
+    fn send_new_message(self: &Rc<Self>) {
+        self.new_message.commit_pending_input();
+        let recipients = self.new_message.recipients();
+        if recipients.is_empty() {
+            self.new_message.focus_input();
+            return;
+        }
+        let body = self.editor_text();
+        let text = body.trim().to_owned();
+        let files = self.state.borrow().files.clone();
+        if text.is_empty() && files.is_empty() {
+            return;
+        }
+
+        if let Some(existing_guid) = self.new_message.existing_conversation_guid() {
+            let existing = self
+                .state
+                .borrow()
+                .chats
+                .iter()
+                .find(|chat| chat.guid == existing_guid)
+                .cloned();
+            if let Some(chat) = existing {
+                self.activate_chat(chat, true);
+                self.editor.buffer().set_text(&body);
+                self.state.borrow_mut().files = files;
+                self.render_files();
+                self.send_draft();
+                return;
+            }
+        }
+
+        let service = self.new_message.service();
+        let timestamp = glib::real_time() / 1_000;
+        if self.mode == Mode::Patterns {
+            let names: Vec<&str> = recipients
+                .iter()
+                .map(|recipient| recipient.name.as_str())
+                .collect();
+            let addresses_str = recipients
+                .iter()
+                .map(|recipient| recipient.address.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let service_prefix = match service {
+                Service::IMessage => "iMessage",
+                Service::Sms => "SMS",
+                Service::Rcs => "RCS",
+            };
+            let guid = if recipients.len() > 1 {
+                format!("{service_prefix};+;pattern-{}", uuid::Uuid::new_v4())
+            } else {
+                format!("{service_prefix};-;{}", recipients[0].address)
+            };
+            let preview = if text.is_empty() {
+                "Sample attachment".to_owned()
+            } else {
+                text.clone()
+            };
+            let mut chat = Conversation::new(guid, names.join(", "), &addresses_str, preview);
+            chat.last_activity = timestamp;
+            chat.group_style = recipients.len() > 1;
+            chat.service = Some(service);
+            chat.participants = recipients
+                .iter()
+                .map(|recipient| Participant {
+                    address: recipient.address.clone(),
+                    name: recipient.name.clone(),
+                    avatar: recipient.avatar.clone(),
+                })
+                .collect();
+            if !chat.is_group() {
+                chat.avatar.clone_from(&recipients[0].avatar);
+            }
+            {
+                let mut state = self.state.borrow_mut();
+                state.chats.insert(0, chat.clone());
+                sort_conversations(&mut state.chats);
+                state.files.clear();
+                state.reply = None;
+            }
+            self.render_organized_chats();
+            self.activate_chat(chat, true);
+            self.editor.buffer().set_text(&body);
+            self.state.borrow_mut().files = files;
+            self.render_files();
+            self.send_draft();
+            return;
+        }
+
+        let (server, session) = {
+            let mut state = self.state.borrow_mut();
+            if state.creating_chat {
+                return;
+            }
+            let Some(server) = state.server.clone() else {
+                return;
+            };
+            state.creating_chat = true;
+            (server, state.session)
+        };
+        self.update_composer();
+        self.update_connection_controls();
+
+        let addresses: Vec<String> = recipients
+            .iter()
+            .map(|recipient| recipient.address.clone())
+            .collect();
+        let temp_guid = format!("temp-{}", uuid::Uuid::new_v4());
+        let sent_text = text.clone();
+        let weak = Rc::downgrade(self);
+        send_background(
+            move || server.create_chat(&addresses, &sent_text, service, &temp_guid),
+            move |result| {
+                let Some(app) = weak.upgrade() else {
+                    return;
+                };
+                if app.state.borrow().session != session {
+                    return;
+                }
+                app.state.borrow_mut().creating_chat = false;
+                match result {
+                    Ok((mut chat, initial_message)) => {
+                        if chat.participants.is_empty() {
+                            chat.participants = recipients
+                                .iter()
+                                .map(|recipient| Participant {
+                                    address: recipient.address.clone(),
+                                    name: recipient.name.clone(),
+                                    avatar: recipient.avatar.clone(),
+                                })
+                                .collect();
+                        } else {
+                            for person in &mut chat.participants {
+                                let key = address_key(&person.address);
+                                if let Some(found) = recipients
+                                    .iter()
+                                    .find(|recipient| address_key(&recipient.address) == key)
+                                {
+                                    if person.name == person.address && found.name != found.address
+                                    {
+                                        person.name.clone_from(&found.name);
+                                    }
+                                    if person.avatar.is_none() && found.avatar.is_some() {
+                                        person.avatar.clone_from(&found.avatar);
+                                    }
+                                }
+                            }
+                        }
+                        if !chat.is_group() && chat.avatar.is_none() {
+                            chat.avatar = recipients.first().and_then(|r| r.avatar.clone());
+                        }
+                        if chat.name == chat.guid
+                            || chat.name.trim().is_empty()
+                            || chat.name == "Conversation"
+                        {
+                            chat.name = recipients
+                                .iter()
+                                .map(|recipient| recipient.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                        }
+                        if chat.last_activity == 0 {
+                            chat.last_activity = timestamp;
+                        }
+                        if let Some(ref message) = initial_message {
+                            chat.update_preview(message);
+                        } else if !text.is_empty() && chat.preview.is_empty() {
+                            chat.set_preview(timestamp, text.clone());
+                        }
+                        let guid = chat.guid.clone();
+                        {
+                            let mut state = app.state.borrow_mut();
+                            if let Some(existing) =
+                                state.chats.iter_mut().find(|row| row.guid == guid)
+                            {
+                                *existing = chat.clone();
+                            } else {
+                                state.chats.push(chat.clone());
+                            }
+                            sort_conversations(&mut state.chats);
+                            let thread = state.threads.entry(guid.clone()).or_default();
+                            if let Some(message) = initial_message {
+                                let rows = thread.messages.get_or_insert_with(Vec::new);
+                                crate::model::merge_messages(rows, vec![message]);
+                            } else if !text.is_empty() {
+                                let rows = thread.messages.get_or_insert_with(Vec::new);
+                                crate::model::merge_messages(
+                                    rows,
+                                    vec![Message {
+                                        guid: format!("new-{}", uuid::Uuid::new_v4()),
+                                        text: text.clone(),
+                                        outgoing: true,
+                                        sent_at: timestamp,
+                                        service: Some(service),
+                                        ..Message::default()
+                                    }],
+                                );
+                            }
+                            state.files.clear();
+                            state.reply = None;
+                        }
+                        app.editor.buffer().set_text("");
+                        app.render_organized_chats();
+                        app.activate_chat(chat, true);
+                        if !files.is_empty() {
+                            app.state.borrow_mut().files = files;
+                            app.render_files();
+                            app.send_draft();
+                        }
+                    }
+                    Err(error) => {
+                        app.notify_error(&error);
+                    }
+                }
+                app.update_connection_controls();
+                app.update_composer();
+            },
+        );
     }
 
     fn dispatch_send(self: &Rc<Self>, chat: String, batch_id: String) {

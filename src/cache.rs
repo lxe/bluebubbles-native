@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
-use crate::model::{Conversation, Message, sort_conversations};
+use crate::model::{ContactEntry, Conversation, Message, sort_conversations};
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ConversationSnapshot {
@@ -61,6 +61,14 @@ impl Cache {
 
     pub fn save_conversations(&self, rows: &ConversationSnapshot) {
         let _ = write_json(&self.directory.join("conversations.json"), rows);
+    }
+
+    pub fn contacts(&self) -> Vec<ContactEntry> {
+        read_json(&self.directory.join("contacts.json")).unwrap_or_default()
+    }
+
+    pub fn save_contacts(&self, rows: &[ContactEntry]) {
+        let _ = write_json(&self.directory.join("contacts.json"), rows);
     }
 
     pub fn save_live_chat_head(&self, chat: &Conversation, message: &Message) {

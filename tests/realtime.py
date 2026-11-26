@@ -172,7 +172,7 @@ def run(output):
         assert count("chats") > queries, "The REST fallback did not run"
         image = output / "fallback.png"
         subprocess.run(["import", "-window", win, str(image)], check=True, timeout=5)
-        control = (279, 13, 313, 47)
+        control = (237, 13, 271, 47)
         assert Image.open(image).convert("RGB").crop(control).tobytes() == (
             Image.open(output / "reopened.png").convert("RGB").crop(control).tobytes()
         ), "A background REST sync animated the toolbar"

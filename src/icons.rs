@@ -6,6 +6,7 @@ use gtk::{cairo::Context, gdk};
 #[derive(Clone, Copy)]
 pub enum Icon {
     Settings,
+    Compose,
     Pin,
     JumpLatest,
     Refresh,
@@ -108,6 +109,29 @@ impl Icon {
                     cr.move_to(10.0 + angle.cos() * 5.4, 10.0 + angle.sin() * 5.4);
                     cr.line_to(10.0 + angle.cos() * 7.3, 10.0 + angle.sin() * 7.3);
                 }
+            }
+            Self::Compose => {
+                use std::f64::consts::FRAC_PI_2;
+                let r = 1.6;
+                cr.move_to(9.8, 4.6);
+                cr.line_to(4.0 + r, 4.6);
+                cr.arc_negative(4.0 + r, 4.6 + r, r, -FRAC_PI_2, std::f64::consts::PI);
+                cr.line_to(4.0, 16.0 - r);
+                cr.arc_negative(4.0 + r, 16.0 - r, r, std::f64::consts::PI, FRAC_PI_2);
+                cr.line_to(15.4 - r, 16.0);
+                cr.arc_negative(15.4 - r, 16.0 - r, r, FRAC_PI_2, 0.0);
+                cr.line_to(15.4, 10.2);
+                lines(
+                    cr,
+                    &[
+                        (13.9, 3.6),
+                        (16.4, 6.1),
+                        (10.4, 12.1),
+                        (7.7, 12.4),
+                        (8.0, 9.7),
+                        (13.9, 3.6),
+                    ],
+                );
             }
             Self::JumpLatest => {
                 lines(cr, &[(10.0, 3.5), (10.0, 15.8)]);

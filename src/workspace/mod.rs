@@ -18,7 +18,8 @@ use crate::avatar::Avatar;
 use crate::cache::Cache;
 use crate::icons::Icon;
 use crate::layout::{Layout, SIDEBAR_INSET, SIDEBAR_ROW_GAP, shortcut, thread_clamp};
-use crate::model::{Attachment, Conversation, TapbackKind};
+use crate::model::{Attachment, ContactEntry, Conversation, TapbackKind, merge_contacts};
+use crate::new_message::{Callbacks as NewMessageCallbacks, NewMessageView};
 use crate::organization::{ChatAction, ChatOrganization, SidebarRow};
 use crate::preferences::Preferences;
 use crate::thread::Quote;
@@ -66,7 +67,12 @@ struct State {
     status: String,
     status_is_error: bool,
     active: Option<Conversation>,
+    previous_active: Option<Conversation>,
     chats: Vec<Conversation>,
+    contacts: Vec<ContactEntry>,
+    loading_contacts: bool,
+    composing_new: bool,
+    creating_chat: bool,
     organization: ChatOrganization,
     drafts: HashMap<String, Draft>,
     files: Vec<PathBuf>,
@@ -121,6 +127,8 @@ pub struct Workspace {
     thread_avatar: Avatar,
     refresh: gtk::Button,
     refresh_content: gtk::Stack,
+    new_message_button: gtk::Button,
+    new_message: Rc<NewMessageView>,
     compose: gtk::Box,
     editor: gtk::TextView,
     editor_scroll: gtk::ScrolledWindow,
@@ -148,6 +156,7 @@ struct SidebarWidgets {
     sidebar_connect: gtk::Button,
     refresh: gtk::Button,
     refresh_content: gtk::Stack,
+    new_message_button: gtk::Button,
     sidebar_minimize: gtk::Button,
     sidebar_close: gtk::Button,
 }
@@ -174,7 +183,7 @@ fn build_sidebar(
     group_avatar_handler: &rows::GroupAvatarHandler,
 ) -> SidebarWidgets {
     let search = gtk::SearchEntry::builder()
-        .placeholder_text("Search conversations")
+        .placeholder_text("Search")
         .search_delay(100)
         .hexpand(true)
         .valign(gtk::Align::Center)
@@ -287,6 +296,11 @@ fn build_sidebar(
         .build();
     refresh.update_property(&[gtk::accessible::Property::Label("Refresh conversations")]);
 
+    let new_message_button = Icon::Compose.button("New message (Ctrl+N)");
+    new_message_button.set_visible(mode != Mode::Stress);
+    new_message_button.set_sensitive(mode == Mode::Patterns);
+    new_message_button.update_property(&[gtk::accessible::Property::Label("New message")]);
+
     let sidebar_minimize = gtk::Button::builder()
         .child(&Icon::Minimize.widget())
         .tooltip_text("Minimize to tray")
@@ -315,6 +329,7 @@ fn build_sidebar(
     sidebar_controls.append(&preferences_button);
     sidebar_controls.append(&search);
     sidebar_controls.append(&refresh);
+    sidebar_controls.append(&new_message_button);
     sidebar_controls.append(&sidebar_minimize);
     sidebar_controls.append(&sidebar_close);
 
@@ -323,6 +338,7 @@ fn build_sidebar(
     for button in [
         &preferences_button,
         &refresh,
+        &new_message_button,
         &sidebar_minimize,
         &sidebar_close,
     ] {
@@ -342,6 +358,7 @@ fn build_sidebar(
         sidebar_connect,
         refresh,
         refresh_content,
+        new_message_button,
         sidebar_minimize,
         sidebar_close,
     }
@@ -492,6 +509,8 @@ impl Workspace {
         connect_button.set_halign(gtk::Align::Center);
         thread_status.set_child(Some(&connect_button));
         thread_stack.add_named(&thread_status, Some("status"));
+        let new_message = NewMessageView::new();
+        thread_stack.add_named(&new_message.root, Some("compose"));
         thread_stack.add_named(&gtk::Box::default(), Some("waiting"));
         thread_stack.add_named(&loading::state("Loading messages…"), Some("loading"));
         thread_stack.set_visible_child_name("status");
@@ -590,6 +609,8 @@ impl Workspace {
             thread_avatar,
             refresh: sidebar.refresh,
             refresh_content: sidebar.refresh_content,
+            new_message_button: sidebar.new_message_button,
+            new_message,
             compose: composer.compose,
             editor: composer.editor,
             editor_scroll: composer.scroll,
@@ -864,7 +885,68 @@ impl Workspace {
                 }
             }
         });
+        self.new_message_button.connect_clicked({
+            let weak = Rc::downgrade(self);
+            move |_| {
+                if let Some(app) = weak.upgrade() {
+                    app.open_new_message();
+                }
+            }
+        });
+        self.new_message.set_callbacks(NewMessageCallbacks {
+            on_changed: Some(Box::new({
+                let weak = Rc::downgrade(self);
+                move || {
+                    if let Some(app) = weak.upgrade() {
+                        app.update_composer();
+                    }
+                }
+            })),
+            on_open_existing: Some(Box::new({
+                let weak = Rc::downgrade(self);
+                move |guid| {
+                    if let Some(app) = weak.upgrade() {
+                        let chat = app
+                            .state
+                            .borrow()
+                            .chats
+                            .iter()
+                            .find(|chat| chat.guid == guid)
+                            .cloned();
+                        if let Some(chat) = chat {
+                            app.activate_chat(chat, true);
+                        }
+                    }
+                }
+            })),
+            on_focus_composer: Some(Box::new({
+                let weak = Rc::downgrade(self);
+                move || {
+                    if let Some(app) = weak.upgrade() {
+                        app.editor.grab_focus();
+                    }
+                }
+            })),
+            on_cancel: Some(Box::new({
+                let weak = Rc::downgrade(self);
+                move || {
+                    if let Some(app) = weak.upgrade() {
+                        app.cancel_new_message();
+                    }
+                }
+            })),
+        });
 
+        shortcut(window, "<Control>n", {
+            let weak = Rc::downgrade(self);
+            move || {
+                if let Some(app) = weak.upgrade()
+                    && app.new_message_button.is_sensitive()
+                {
+                    app.open_new_message();
+                }
+            }
+        });
         shortcut(window, "<Control>f", {
             let weak = Rc::downgrade(self);
             let search = search.clone();
@@ -1050,7 +1132,7 @@ impl Workspace {
                 let (Some(app), Ok(files)) = (weak.upgrade(), value.get::<gdk::FileList>()) else {
                     return false;
                 };
-                let Some(guid) = app.active_guid() else {
+                let Some(guid) = app.composer_ready_guid() else {
                     return false;
                 };
                 app.add_files(
@@ -1134,23 +1216,33 @@ impl Workspace {
             let saved_address = self.state.borrow().server_address.clone();
             if !saved_address.is_empty() {
                 let cache = Cache::new(&saved_address);
-                background(move || Ok(cache.conversations().conversations), {
-                    let weak = Rc::downgrade(self);
-                    move |result: Result<Vec<Conversation>, String>| {
-                        if let (Some(app), Ok(rows)) = (weak.upgrade(), result)
-                            && {
-                                let state = app.state.borrow();
-                                state.server_address == saved_address && state.chats.is_empty()
-                            }
-                            && !rows.is_empty()
-                        {
-                            app.replace_chats(rows);
-                            if !app.restore_last_thread() {
-                                app.status_page("Select a conversation", None);
+                background(
+                    move || Ok((cache.conversations().conversations, cache.contacts())),
+                    {
+                        let weak = Rc::downgrade(self);
+                        move |result: Result<(Vec<Conversation>, Vec<ContactEntry>), String>| {
+                            if let (Some(app), Ok((rows, contacts))) = (weak.upgrade(), result) {
+                                let should_apply = {
+                                    let mut state = app.state.borrow_mut();
+                                    let same = state.server_address == saved_address;
+                                    if same && state.contacts.is_empty() && !contacts.is_empty() {
+                                        state.contacts = contacts;
+                                    }
+                                    same && state.chats.is_empty()
+                                };
+                                if should_apply && !rows.is_empty() {
+                                    app.replace_chats(rows);
+                                    if !app.restore_last_thread() {
+                                        app.status_page("Select a conversation", None);
+                                    }
+                                }
+                                if app.state.borrow().composing_new {
+                                    app.sync_new_message_directory();
+                                }
                             }
                         }
-                    }
-                });
+                    },
+                );
             }
             background(settings::load, {
                 let weak = Rc::downgrade(self);
@@ -1176,6 +1268,7 @@ impl Workspace {
             let mut rows = sample::conversations();
             if self.mode == Mode::Patterns {
                 rows.truncate(7);
+                self.state.borrow_mut().contacts = sample::contacts();
             }
             self.replace_chats(rows);
             self.set_status("Offline sample data");
@@ -1442,6 +1535,10 @@ impl Workspace {
         let syncing = state.connecting || state.show_refresh;
         self.refresh
             .set_sensitive(self.mode == Mode::Live && !syncing && state.server.is_some());
+        self.new_message_button.set_sensitive(
+            (self.mode == Mode::Patterns)
+                || (self.mode == Mode::Live && !state.connecting && state.server.is_some()),
+        );
         self.refresh_content
             .set_visible_child_name(if syncing { "syncing" } else { "idle" });
         if syncing {
@@ -1470,6 +1567,11 @@ impl Workspace {
         {
             let mut state = self.state.borrow_mut();
             state.chats.clear();
+            state.contacts.clear();
+            state.loading_contacts = false;
+            state.composing_new = false;
+            state.creating_chat = false;
+            state.previous_active = None;
             state.organization = ChatOrganization::default();
             state.drafts.clear();
             state.threads.clear();
@@ -1493,6 +1595,8 @@ impl Workspace {
     fn close_thread(&self) {
         {
             let mut state = self.state.borrow_mut();
+            state.composing_new = false;
+            state.previous_active = None;
             if let Some(previous) = state.active.take() {
                 let draft = Draft {
                     text: self.editor_text(),
@@ -1500,6 +1604,9 @@ impl Workspace {
                     reply: state.reply.take(),
                 };
                 state.drafts.insert(previous.guid, draft);
+            } else {
+                state.files.clear();
+                state.reply = None;
             }
         }
         self.active_highlight.set_text("");
@@ -1508,6 +1615,121 @@ impl Workspace {
         self.thread_title.set_title("BlueBubbles Native");
         self.thread_avatar.set_visible(false);
         self.layout.show_sidebar();
+    }
+
+    pub(super) fn open_new_message(self: &Rc<Self>) {
+        if self.mode == Mode::Stress {
+            return;
+        }
+        let should_fetch = {
+            let mut state = self.state.borrow_mut();
+            if state.composing_new {
+                drop(state);
+                self.layout.show_thread();
+                self.new_message.focus_input();
+                return;
+            }
+            if let Some(previous) = state.active.take() {
+                let draft = Draft {
+                    text: self.editor_text(),
+                    files: std::mem::take(&mut state.files),
+                    reply: state.reply.take(),
+                };
+                state.drafts.insert(previous.guid.clone(), draft);
+                state.previous_active = Some(previous);
+            }
+            state.composing_new = true;
+            state.files.clear();
+            state.reply = None;
+            self.mode == Mode::Live
+                && state.server.is_some()
+                && state.contacts.is_empty()
+                && !state.loading_contacts
+        };
+        self.cancel_loading_indicator();
+        self.active_highlight.set_text("");
+        self.editor.buffer().set_text("");
+        self.thread_title.set_title("New Message");
+        self.thread_avatar.set_visible(false);
+        let (directory, chats, loading) = self.contact_picker_snapshot();
+        self.new_message
+            .reset(directory, chats, loading || should_fetch);
+        self.thread_stack.set_visible_child_name("compose");
+        self.compose.set_visible(true);
+        self.render_files();
+        self.layout.show_thread();
+        self.new_message.focus_input();
+        if should_fetch {
+            self.refresh_contact_directory();
+        }
+    }
+
+    pub(super) fn cancel_new_message(self: &Rc<Self>) {
+        let previous = {
+            let mut state = self.state.borrow_mut();
+            if !state.composing_new {
+                return;
+            }
+            state.composing_new = false;
+            state.files.clear();
+            state.reply = None;
+            state.previous_active.take()
+        };
+        if let Some(chat) = previous {
+            self.activate_chat(chat, false);
+        } else {
+            self.close_thread();
+            self.status_page("Select a conversation", None);
+        }
+    }
+
+    pub(super) fn contact_picker_snapshot(&self) -> (Vec<ContactEntry>, Vec<Conversation>, bool) {
+        let state = self.state.borrow();
+        let merged = merge_contacts(&state.contacts, &state.chats);
+        (merged, state.chats.clone(), state.loading_contacts)
+    }
+
+    pub(super) fn sync_new_message_directory(&self) {
+        let (directory, chats, loading) = self.contact_picker_snapshot();
+        self.new_message.update_directory(directory, chats, loading);
+    }
+
+    fn refresh_contact_directory(self: &Rc<Self>) {
+        let (server, session) = {
+            let mut state = self.state.borrow_mut();
+            if state.loading_contacts {
+                return;
+            }
+            let Some(server) = state.server.clone() else {
+                return;
+            };
+            state.loading_contacts = true;
+            (server, state.session)
+        };
+        background(move || server.contact_directory(), {
+            let weak = Rc::downgrade(self);
+            move |result: Result<Vec<ContactEntry>, String>| {
+                let Some(app) = weak.upgrade() else {
+                    return;
+                };
+                let composing = {
+                    let mut state = app.state.borrow_mut();
+                    if state.session != session {
+                        return;
+                    }
+                    state.loading_contacts = false;
+                    if let Ok(contacts) = result
+                        && !contacts.is_empty()
+                    {
+                        state.contacts = contacts;
+                    }
+                    state.composing_new
+                };
+                if composing {
+                    app.sync_new_message_directory();
+                }
+            }
+        });
     }
 
     fn show_disconnected(&self) {

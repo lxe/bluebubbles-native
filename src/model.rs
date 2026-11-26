@@ -71,6 +71,175 @@ pub struct Participant {
     pub avatar: Option<std::path::PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ContactEntry {
+    pub name: String,
+    pub address: String,
+    #[serde(default)]
+    pub avatar: Option<std::path::PathBuf>,
+}
+
+impl ContactEntry {
+    pub fn matches_query(&self, query: &str) -> bool {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return true;
+        }
+        let words: Vec<String> = trimmed.split_whitespace().map(str::to_lowercase).collect();
+        let name = self.name.to_lowercase();
+        let address = self.address.to_lowercase();
+        let address_digits: String = self.address.chars().filter(char::is_ascii_digit).collect();
+        words.iter().all(|word| {
+            if name.contains(word) || address.contains(word) {
+                return true;
+            }
+            let word_digits: String = word.chars().filter(char::is_ascii_digit).collect();
+            !word_digits.is_empty() && address_digits.contains(&word_digits)
+        })
+    }
+}
+
+pub fn looks_like_address(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if let Some((local, domain)) = trimmed.split_once('@') {
+        return !local.is_empty()
+            && !domain.is_empty()
+            && domain.contains('.')
+            && !trimmed.chars().any(char::is_whitespace);
+    }
+    let digits = trimmed.chars().filter(char::is_ascii_digit).count();
+    digits >= 3
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || matches!(ch, '+' | '-' | '(' | ')' | ' ' | '.'))
+}
+
+pub fn merge_contacts(
+    directory: &[ContactEntry],
+    conversations: &[Conversation],
+) -> Vec<ContactEntry> {
+    use std::collections::HashMap;
+
+    let mut by_key: HashMap<String, ContactEntry> = HashMap::new();
+    for entry in directory {
+        let address = entry.address.trim();
+        if address.is_empty() {
+            continue;
+        }
+        let key = address_key(address);
+        let name = if entry.name.trim().is_empty() {
+            address.to_owned()
+        } else {
+            entry.name.trim().to_owned()
+        };
+        by_key
+            .entry(key)
+            .and_modify(|existing| {
+                if existing.name == existing.address && name != address {
+                    existing.name = name.clone();
+                }
+                if existing.avatar.is_none() && entry.avatar.is_some() {
+                    existing.avatar.clone_from(&entry.avatar);
+                }
+            })
+            .or_insert(ContactEntry {
+                name,
+                address: address.to_owned(),
+                avatar: entry.avatar.clone(),
+            });
+    }
+    for chat in conversations {
+        for person in &chat.participants {
+            let address = person.address.trim();
+            if address.is_empty() {
+                continue;
+            }
+            let key = address_key(address);
+            let name = if person.name.trim().is_empty() {
+                address.to_owned()
+            } else {
+                person.name.trim().to_owned()
+            };
+            by_key
+                .entry(key)
+                .and_modify(|existing| {
+                    if existing.name == existing.address && name != address {
+                        existing.name = name.clone();
+                    }
+                    if existing.avatar.is_none() && person.avatar.is_some() {
+                        existing.avatar.clone_from(&person.avatar);
+                    }
+                })
+                .or_insert(ContactEntry {
+                    name,
+                    address: address.to_owned(),
+                    avatar: person.avatar.clone(),
+                });
+        }
+        if !chat.is_group()
+            && chat.participants.is_empty()
+            && let Some(address) = chat.guid.rsplit(';').next()
+            && looks_like_address(address)
+        {
+            let key = address_key(address);
+            by_key.entry(key).or_insert_with(|| ContactEntry {
+                name: chat.name.clone(),
+                address: address.to_owned(),
+                avatar: chat.avatar.clone(),
+            });
+        }
+    }
+    let mut merged: Vec<ContactEntry> = by_key.into_values().collect();
+    merged.sort_by(|left, right| {
+        left.name
+            .to_lowercase()
+            .cmp(&right.name.to_lowercase())
+            .then_with(|| left.address.cmp(&right.address))
+    });
+    merged
+}
+
+pub fn find_existing_conversation<'a>(
+    conversations: &'a [Conversation],
+    addresses: &[String],
+) -> Option<&'a Conversation> {
+    use std::collections::BTreeSet;
+
+    let wanted: BTreeSet<String> = addresses
+        .iter()
+        .map(|address| address_key(address))
+        .filter(|key| !key.is_empty())
+        .collect();
+    if wanted.is_empty() {
+        return None;
+    }
+    conversations
+        .iter()
+        .filter(|chat| {
+            let mut keys: BTreeSet<String> = chat
+                .participants
+                .iter()
+                .map(|person| address_key(&person.address))
+                .filter(|key| !key.is_empty())
+                .collect();
+            if keys.is_empty()
+                && !chat.is_group()
+                && let Some(address) = chat.guid.rsplit(';').next()
+                && looks_like_address(address)
+            {
+                keys.insert(address_key(address));
+            }
+            if wanted.len() == 1 && chat.is_group() {
+                return false;
+            }
+            keys == wanted
+        })
+        .max_by_key(|chat| chat.last_activity)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Message {
     pub guid: String,
@@ -415,5 +584,64 @@ mod tests {
         rcs_msg.service = Some(Service::Rcs);
         assert!(unified.update_preview(&rcs_msg));
         assert_eq!(unified.service(), Service::Rcs);
+    }
+
+    #[test]
+    fn contacts_match_merge_and_find_existing_conversations() {
+        let maya = ContactEntry {
+            name: "Maya Chen".into(),
+            address: "+1 (555) 010-0100".into(),
+            avatar: None,
+        };
+        assert!(maya.matches_query("maya"));
+        assert!(maya.matches_query("chen 555"));
+        assert!(maya.matches_query("5550100100"));
+        assert!(!maya.matches_query("sam"));
+
+        assert!(looks_like_address("+1 555-010-0100"));
+        assert!(looks_like_address("maya@icloud.com"));
+        assert!(!looks_like_address("Maya Chen"));
+        assert!(!looks_like_address("12"));
+
+        let mut dm = Conversation::new(
+            "iMessage;-;+15550100100".into(),
+            "Maya".into(),
+            "",
+            "".into(),
+        );
+        dm.participants.push(Participant {
+            address: "+15550100100".into(),
+            name: "Maya Chen".into(),
+            avatar: None,
+        });
+        dm.last_activity = 200;
+        let mut group = Conversation::new("iMessage;+;chat1".into(), "Crew".into(), "", "".into());
+        group.group_style = true;
+        group.participants.push(Participant {
+            address: "+15550100100".into(),
+            name: "Maya Chen".into(),
+            avatar: None,
+        });
+        group.participants.push(Participant {
+            address: "+15550100101".into(),
+            name: "Sam Rivera".into(),
+            avatar: None,
+        });
+        let merged = merge_contacts(&[maya], &[dm.clone(), group.clone()]);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].name, "Maya Chen");
+        assert_eq!(merged[1].name, "Sam Rivera");
+
+        let chats = vec![dm, group];
+        assert_eq!(
+            find_existing_conversation(&chats, &["555-010-0100".into()]).map(|c| c.guid.as_str()),
+            Some("iMessage;-;+15550100100")
+        );
+        assert_eq!(
+            find_existing_conversation(&chats, &["+15550100101".into(), "+15550100100".into()])
+                .map(|c| c.guid.as_str()),
+            Some("iMessage;+;chat1")
+        );
+        assert!(find_existing_conversation(&chats, &["+15559999999".into()]).is_none());
     }
 }

@@ -7,7 +7,7 @@ use gtk::{gdk, gio, glib};
 
 use crate::api::BlueBubbles;
 use crate::avatar::Avatar;
-use crate::model::{Conversation, Message};
+use crate::model::{ContactEntry, Conversation, Message};
 use crate::organization::{ChatAction, ChatOrganization};
 use crate::{realtime, rows, settings};
 
@@ -70,11 +70,15 @@ impl Workspace {
                         missed.push((chat.clone(), since));
                     }
                 }
-                Ok((snapshot.conversations, missed))
+                let contacts = cache.contacts();
+                Ok((snapshot.conversations, contacts, missed))
             },
             {
                 let weak = Rc::downgrade(self);
-                move |result: Result<(Vec<Conversation>, RecoveredChats), String>| {
+                move |result: Result<
+                    (Vec<Conversation>, Vec<ContactEntry>, RecoveredChats),
+                    String,
+                >| {
                     let Some(app) = weak.upgrade() else {
                         return;
                     };
@@ -88,10 +92,15 @@ impl Workspace {
                     }
                     app.update_connection_controls();
                     match result {
-                        Ok((mut chats, missed)) => {
+                        Ok((mut chats, contacts, missed)) => {
+                            if !contacts.is_empty() {
+                                app.state.borrow_mut().contacts = contacts;
+                            }
                             app.preserve_live_chats(&mut chats);
                             app.replace_chats(chats);
-                            if app.active_guid().is_none() {
+                            if app.state.borrow().composing_new {
+                                app.sync_new_message_directory();
+                            } else if app.active_guid().is_none() {
                                 app.restore_last_thread();
                             }
                             app.recover_notifications(session, missed);

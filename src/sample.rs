@@ -1,4 +1,4 @@
-use crate::model::{Conversation, Message};
+use crate::model::{ContactEntry, Conversation, Message, Participant};
 
 const STRESS_SIZE: usize = 10_000;
 const FIELD_NOTES: &[(&str, bool)] = &[
@@ -34,11 +34,56 @@ const STRESS_LINES: &[(&str, bool)] = &[
 ];
 const SAMPLE_LINE: &str = "This conversation is generated for the list test.";
 
+pub fn contacts() -> Vec<ContactEntry> {
+    vec![
+        ContactEntry {
+            name: "Maya Chen".into(),
+            address: "+1 (555) 010-0100".into(),
+            avatar: None,
+        },
+        ContactEntry {
+            name: "Sam Rivera".into(),
+            address: "+1 (555) 010-0101".into(),
+            avatar: None,
+        },
+        ContactEntry {
+            name: "Jordan Lee".into(),
+            address: "+1 (555) 010-0102".into(),
+            avatar: None,
+        },
+        ContactEntry {
+            name: "Elena Rostova".into(),
+            address: "elena@example.com".into(),
+            avatar: None,
+        },
+        ContactEntry {
+            name: "Devon Brooks".into(),
+            address: "+1 (555) 010-0104".into(),
+            avatar: None,
+        },
+        ContactEntry {
+            name: "Alex Kim".into(),
+            address: "alex.kim@icloud.com".into(),
+            avatar: None,
+        },
+    ]
+}
+
 pub fn conversations() -> Vec<Conversation> {
+    let directory = contacts();
     let mut rows = CONVERSATIONS
         .iter()
         .map(|&(name, lines)| {
-            Conversation::new(name.into(), name.into(), "", lines.last().unwrap().0.into())
+            let mut chat =
+                Conversation::new(name.into(), name.into(), "", lines.last().unwrap().0.into());
+            if let Some(contact) = directory.iter().find(|entry| entry.name == name) {
+                chat.participants.push(Participant {
+                    address: contact.address.clone(),
+                    name: contact.name.clone(),
+                    avatar: contact.avatar.clone(),
+                });
+            }
+            chat
         })
         .collect::<Vec<_>>();
     rows.push(Conversation::new(
